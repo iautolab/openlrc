@@ -39,6 +39,7 @@ class TestTranslatorAgent(unittest.TestCase):
                        )]
                )
            ]))
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-dummy'})
     def test_translate_chunk_success(self):
         agent = ChunkedTranslatorAgent(
             src_lang='en', target_lang='fr', info=TranslateInfo(
@@ -68,6 +69,7 @@ class TestTranslatorAgent(unittest.TestCase):
     @patch('openlrc.chatbot.GPTBot.get_content',
            MagicMock(
                return_value='<summary>Example Summary</summary>\n<scene>Example Scene</scene>\n#1\nOriginal>xxx\nTranslation>\nBonjour, comment ça va?\n#2\nOriginal>xxx\nTranslation>\nJe vais bien, merci.\n'))
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-dummy'})
     def test_parse_response_success(self):
         agent = ChunkedTranslatorAgent(src_lang='en', target_lang='fr')
         translations, summary, scene = agent._parse_responses('dummy_response')
