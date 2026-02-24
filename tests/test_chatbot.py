@@ -1,11 +1,14 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
+import os
 import unittest
 from typing import Union
 
 from pydantic import BaseModel
 
 from openlrc.chatbot import GPTBot, ClaudeBot, route_chatbot, GeminiBot
+
+LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
 
 
 class Usage(BaseModel):
@@ -72,6 +75,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertIsNotNone(bot.api_fees)
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_async(self):
         bot = self.gpt_bot
         messages_list = [
@@ -86,6 +90,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_async(self):
         bot = self.claude_bot
         messages_list = [
@@ -100,6 +105,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertTrue(all(['hello' in bot.get_content(r).lower() for r in results]))
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_gpt_message_seq(self):
         bot = self.gpt_bot
         messages_list = [
@@ -111,6 +117,7 @@ class TestChatBot(unittest.TestCase):
 
         self.assertIn('hello', bot.get_content(results[0]).lower())
 
+    @unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1')
     def test_claude_message_seq(self):
         bot = self.claude_bot
         messages_list = [
@@ -172,6 +179,7 @@ class TestThirdPartyBot(unittest.TestCase):
 
 # TODO: Retry_bot testing
 
+@unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestGeminiBot(unittest.TestCase):
     # def setUp(self):
     #     import os

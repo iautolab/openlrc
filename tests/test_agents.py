@@ -1,6 +1,7 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+import os
 import unittest
 from typing import List
 from unittest.mock import patch, MagicMock
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 from openlrc.agents import ChunkedTranslatorAgent, TranslationContext, ContextReviewerAgent
 from openlrc.context import TranslateInfo
 from openlrc.prompter import ChunkedTranslatePrompter
+
+LIVE_API = os.environ.get('OPENLRC_TEST_LIVE_API', '').lower() in ('1', 'true', 'yes')
 
 
 class DummyMessage(BaseModel):
@@ -92,6 +95,7 @@ class TestTranslatorAgent(unittest.TestCase):
         self.assertEqual(formatted_glossary, expected_output)
 
 
+@unittest.skipUnless(LIVE_API, 'Requires OPENLRC_TEST_LIVE_API=1 and valid API keys')
 class TestContextReviewerAgent(unittest.TestCase):
     def test_generates_valid_context(self):
         texts = ["John and Sarah discuss their plan to locate a suspect",
