@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from openlrc.context import TranslationContext, TranslateInfo
+from openlrc.context import TranslationContext
 from openlrc.translate import LLMTranslator
 
 
@@ -161,7 +161,8 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
                 guideline=context.guideline,
                 previous_summaries=context.previous_summaries,
             )
-            return [f'trans{i}' for i in range(len(chunk))], ctx
+            # Return one translation per source line, using the line number from chunk
+            return [f'trans{line_num}' for line_num, _ in chunk], ctx
 
         mock_agent = mock_agent_cls.return_value
         mock_agent.cost = 0
