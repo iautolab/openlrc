@@ -96,7 +96,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
     def test_single_chunk(self, mock_agent_cls, mock_reviewer_cls):
         """Texts fitting in one chunk -> translate_chunk called once, correct result."""
         texts = ['hello', 'world']
-        expected = ['bonjour', 'monde']
+        expected = ['你好', '世界']
 
         mock_agent = mock_agent_cls.return_value
         mock_agent.cost = 0.001
@@ -108,7 +108,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
         translator = self._make_translator(chunk_size=30)
         with tempfile.TemporaryDirectory() as tmpdir:
             compare_path = Path(tmpdir) / 'compare.json'
-            result = translator.translate(texts, 'en', 'fr', compare_path=compare_path)
+            result = translator.translate(texts, 'en', 'zh', compare_path=compare_path)
 
         self.assertEqual(result, expected)
         mock_agent.translate_chunk.assert_called_once()
@@ -139,7 +139,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
         translator = self._make_translator(chunk_size=3)
         with tempfile.TemporaryDirectory() as tmpdir:
             compare_path = Path(tmpdir) / 'compare.json'
-            result = translator.translate(texts, 'en', 'fr', compare_path=compare_path)
+            result = translator.translate(texts, 'en', 'zh', compare_path=compare_path)
 
         self.assertEqual(result, translations)
         self.assertEqual(mock_agent.translate_chunk.call_count, 2)
@@ -173,7 +173,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
         translator = self._make_translator(chunk_size=3)
         with tempfile.TemporaryDirectory() as tmpdir:
             compare_path = Path(tmpdir) / 'compare.json'
-            translator.translate(texts, 'en', 'fr', compare_path=compare_path)
+            translator.translate(texts, 'en', 'zh', compare_path=compare_path)
 
         # Chunk 1: no previous summaries
         self.assertEqual(call_contexts[0]['previous_summaries'], [])
@@ -199,12 +199,12 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
         mock_reviewer.build_context.return_value = 'guideline'
 
         translator = self._make_translator(chunk_size=30)
-        with patch.object(translator, 'atomic_translate', return_value=['bonjour', 'monde']) as mock_atomic:
+        with patch.object(translator, 'atomic_translate', return_value=['你好', '世界']) as mock_atomic:
             with tempfile.TemporaryDirectory() as tmpdir:
                 compare_path = Path(tmpdir) / 'compare.json'
-                result = translator.translate(texts, 'en', 'fr', compare_path=compare_path)
+                result = translator.translate(texts, 'en', 'zh', compare_path=compare_path)
 
-        self.assertEqual(result, ['bonjour', 'monde'])
+        self.assertEqual(result, ['你好', '世界'])
         mock_atomic.assert_called_once()
 
     @patch('openlrc.translate.ContextReviewerAgent')
@@ -228,7 +228,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
         retry_agent.info.glossary = None
         # Retry returns correct length
         retry_agent.translate_chunk.return_value = (
-            ['bonjour', 'monde'],
+            ['你好', '世界'],
             TranslationContext(summary='s', scene='sc', guideline='g'),
         )
 
@@ -240,9 +240,9 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
         translator = self._make_translator(chunk_size=30, retry_model='gpt-4.1-nano')
         with tempfile.TemporaryDirectory() as tmpdir:
             compare_path = Path(tmpdir) / 'compare.json'
-            result = translator.translate(texts, 'en', 'fr', compare_path=compare_path)
+            result = translator.translate(texts, 'en', 'zh', compare_path=compare_path)
 
-        self.assertEqual(result, ['bonjour', 'monde'])
+        self.assertEqual(result, ['你好', '世界'])
         primary_agent.translate_chunk.assert_called_once()
         retry_agent.translate_chunk.assert_called_once()
 
@@ -279,7 +279,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
                 json.dump(saved_state, f)
 
             translator = self._make_translator(chunk_size=3)
-            result = translator.translate(texts, 'en', 'fr', compare_path=compare_path)
+            result = translator.translate(texts, 'en', 'zh', compare_path=compare_path)
 
         # Should have 6 translations: 3 resumed + 3 newly translated
         self.assertEqual(len(result), 6)
