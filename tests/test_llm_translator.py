@@ -78,12 +78,17 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     def _mock_translate_chunk(self, translations, summary='summary', scene='scene'):
         """Return a side_effect function that returns translations matching chunk length."""
+        offset = 0
+
         def side_effect(chunk_id, chunk, context, use_glossary=True):
+            nonlocal offset
             ctx = TranslationContext(
                 summary=summary, scene=scene, guideline=context.guideline,
                 previous_summaries=context.previous_summaries,
             )
-            return translations[:len(chunk)], ctx
+            result = translations[offset:offset + len(chunk)]
+            offset += len(chunk)
+            return result, ctx
         return side_effect
 
     @patch('openlrc.translate.ContextReviewerAgent')
@@ -112,7 +117,15 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
     @patch('openlrc.translate.ContextReviewerAgent')
     @patch('openlrc.translate.ChunkedTranslatorAgent')
     def test_multiple_chunks(self, mock_agent_cls, mock_reviewer_cls):
-        """Texts spanning 2 chunks -> translate_chunk called twice."""
+        """Texts spanning 2 chunks -> translate_chunk called twice.
+
+        With chunk_size=3 and 6 texts, translate() produces 2 chunks.
+        The mock side_effect advances an internal offset so that each
+        chunk receives its own slice of the translations list:
+          chunk 1 -> ['trans0', 'trans1', 'trans2']
+          chunk 2 -> ['trans3', 'trans4', 'trans5']
+        The final result should be the full list in order.
+        """
         texts = [f'text{i}' for i in range(6)]
         translations = [f'trans{i}' for i in range(6)]
 
