@@ -80,28 +80,6 @@ dev = [
 
 [tool.uv]
 
-[[tool.uv.index]]
-name = "PyPI"
-url = "https://pypi.org/simple/"
-default = true
-
-[[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
-explicit = true
-
-[tool.uv.sources]
-faster-whisper = { url = "https://github.com/SYSTRAN/faster-whisper/archive/8327d8cc647266ed66f6cd878cf97eccface7351.tar.gz" }
-torch = [
-    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-]
-torchvision = [
-    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-]
-torchaudio = [
-    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-]
-
 [tool.ruff]
 target-version = "py310"
 line-length = 120
