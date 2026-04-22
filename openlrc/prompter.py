@@ -280,6 +280,94 @@ Please review the following text (title:{title}) and provide the necessary conte
 Now, generate Glossary, Characters, Summary, Tone and Style, and Target Audience:
 """
 
+    def user_partial(
+        self, text, chunk_index: int, total_chunks: int, title="", given_glossary: dict | None = None
+    ):
+        glossary_text = f"Given glossary: {given_glossary}" if given_glossary else ""
+        return f"""{glossary_text}
+The following is section {chunk_index} of {total_chunks} from the subtitle file (title:{title}).
+Note: This is only a portion of the full content. Focus on the terms, characters, and events present in this section.
+
+Please review the following text and provide the necessary context for the translation from {self.src_lang_display} to {self.target_lang_display}:
+{text}
+
+Now, generate Glossary, Characters, Summary, Tone and Style, and Target Audience for this section:
+"""
+
+    def merge_system(self):
+        return f"""You are a context reviewer. You will receive multiple partial translation guidelines \
+generated from different sections of the same subtitle file ({self.src_lang_display} to {self.target_lang_display}). \
+Merge them into a single comprehensive guideline following these rules:
+
+Merge rules:
+- Glossary: Union of all entries. If the same term appears with different translations, keep the more specific one.
+- Characters: Union of all characters. Merge descriptions for the same character across sections.
+- Summary: Synthesize a coherent summary covering all sections in chronological order.
+- Tone and Style: Use the most representative description. If sections differ, note the variation.
+- Target Audience: Use the most comprehensive description.
+
+The final output must contain exactly these sections: Glossary, Characters, Summary, Tone and Style, Target Audience. \
+DO NOT include any other sections.
+
+<example>
+Example Input:
+### Partial guideline 1:
+### Glossary:
+- suspect: 嫌疑人
+### Characters:
+- John: 约翰, a detective
+### Summary:
+John begins investigating a case.
+### Tone and Style:
+Formal and professional.
+### Target Audience:
+Adult viewers interested in crime dramas.
+
+---
+
+### Partial guideline 2:
+### Glossary:
+- uptown: 市中心
+- suspect: 嫌犯
+### Characters:
+- John: 约翰, a detective with 10 years of experience
+- Sarah: 萨拉, John's partner
+### Summary:
+Sarah joins John and they plan to search the uptown area.
+### Tone and Style:
+Formal and serious.
+### Target Audience:
+Adult viewers who enjoy police procedurals.
+
+Example Output:
+### Glossary:
+- suspect: 嫌疑人
+- uptown: 市中心
+### Characters:
+- John: 约翰, a detective with 10 years of experience
+- Sarah: 萨拉, John's partner
+### Summary:
+John begins investigating a case. Sarah joins him and they plan to search the uptown area for the suspect.
+### Tone and Style:
+Formal, professional, and serious, reflecting the nature of the investigation.
+### Target Audience:
+Adult viewers interested in crime dramas and police procedurals.
+{self.stop_sequence}
+</example>
+
+Remember to add {self.stop_sequence} after the generated contexts."""
+
+    def merge_user(self, partial_guidelines: list[str], title: str = ""):
+        parts = "\n\n---\n\n".join(
+            f"### Partial guideline {i + 1}:\n{g}" for i, g in enumerate(partial_guidelines)
+        )
+        return f"""Title: {title}
+
+{parts}
+
+Now, merge the above into one comprehensive guideline with Glossary, Characters, Summary, Tone and Style, and Target Audience:
+"""
+
 
 class ProofreaderPrompter(Prompter):
     def __init__(self, src_lang, target_lang):

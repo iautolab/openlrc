@@ -18,6 +18,7 @@ from openlrc.prompter import (
     ProofreaderPrompter,
     TranslationEvaluatorPrompter,
 )
+from openlrc.utils import get_text_token_number
 from openlrc.validators import POTENTIAL_PREFIX_COMBOS
 
 
@@ -256,13 +257,17 @@ class ContextReviewerAgent(Agent):
     """
     Agent responsible for reviewing the context of subtitles to ensure accuracy and completeness.
 
-    TODO: Add chunking support.
-
     Attributes:
         TEMPERATURE (float): The temperature setting for the language model.
+        MIN_OUTPUT_TOKENS (int): Minimum tokens reserved for LLM output.
+        MIN_CHUNK_TEXT_TOKENS (int): Minimum text tokens per chunk for chunked generation.
+        MERGE_RETRIES (int): Number of retries for merging partial guidelines.
     """
 
     TEMPERATURE = 0.6
+    MIN_OUTPUT_TOKENS = 1024
+    MIN_CHUNK_TEXT_TOKENS = 256
+    MERGE_RETRIES = 3
 
     def __init__(
         self,
@@ -274,6 +279,7 @@ class ContextReviewerAgent(Agent):
         fee_limit: float = 0.8,
         proxy: str | None = None,
         base_url_config: dict | None = None,
+        chunked_guideline: bool = False,
     ):
         """
         Initialize the ContextReviewerAgent.
@@ -287,6 +293,9 @@ class ContextReviewerAgent(Agent):
             fee_limit (float): The maximum fee allowed for API calls.
             proxy (str): Proxy server to use for API calls.
             base_url_config (Optional[dict]): Configuration for the base URL of the API.
+            chunked_guideline (bool): Enable chunked guideline generation for long texts.
+                When False (default), long texts that exceed the context window will fail.
+                When True, automatically splits into chunks and merges partial guidelines.
         """
         super().__init__()
         if info is None:
@@ -295,6 +304,7 @@ class ContextReviewerAgent(Agent):
         self.target_lang = target_lang
         self.info = info
         self.chatbot_model = chatbot_model
+        self.chunked_guideline = chunked_guideline
         self.validate_prompter = ContextReviewerValidatePrompter()
         self.prompter = ContextReviewPrompter(src_lang, target_lang)
         self.chatbot = self._initialize_chatbot(chatbot_model, fee_limit, proxy, base_url_config)
@@ -340,6 +350,9 @@ class ContextReviewerAgent(Agent):
         """
         Build the context for translation based on the provided texts and additional information.
 
+        Automatically splits into chunks when the full text would exceed the model's
+        context window, generates partial guidelines per chunk, then merges them.
+
         Args:
             texts (List[str]): The texts to build context from.
             title (str): The title of the content.
@@ -351,34 +364,92 @@ class ContextReviewerAgent(Agent):
         """
         text_content = "\n".join(texts)
 
+        # Estimate whether the full text fits in a single pass.
+        system_tokens = get_text_token_number(self.prompter.system())
+        user_tokens = get_text_token_number(self.prompter.user(text_content, title=title, given_glossary=glossary))
+        context_window = self.chatbot.model_info.context_window
+        available_output = int(context_window * 0.95) - system_tokens - user_tokens
+
+        if available_output >= self.MIN_OUTPUT_TOKENS:
+            try:
+                context = self._build_context_single(text_content, title, glossary)
+            except Exception as e:
+                if self.chunked_guideline:
+                    logger.warning(
+                        f"Single-pass guideline failed ({e}), falling back to chunked generation."
+                    )
+                    context = self._build_context_chunked(texts, title, glossary)
+                else:
+                    logger.error(
+                        f"Guideline generation failed: {e}. "
+                        f"Consider enabling chunked_guideline=True or using a model with a larger context window."
+                    )
+                    raise
+        elif self.chunked_guideline:
+            logger.info(
+                f"Input too large for single pass (available_output={available_output}), "
+                f"splitting into chunks."
+            )
+            context = self._build_context_chunked(texts, title, glossary)
+        else:
+            logger.warning(
+                f"Input too large for context window (available_output={available_output}). "
+                f"Enable chunked_guideline=True to handle long texts. Returning empty guideline."
+            )
+            context = ""
+
+        if forced_glossary and glossary:
+            context = self.add_external_glossary(context, glossary)
+
+        return context
+
+    def _build_context_single(self, text_content: str, title: str, glossary: dict | None) -> str:
+        """Generate guideline from the full text in a single LLM call.
+
+        Retries only on format validation failures. Deterministic errors
+        (e.g. context window exceeded) are re-raised immediately.
+        """
+        from openlrc.exceptions import ChatBotException
+
         messages_list = [
             {"role": "system", "content": self.prompter.system()},
             {"role": "user", "content": self.prompter.user(text_content, title=title, given_glossary=glossary)},
         ]
 
-        context = None
-        try:
-            resp = self.chatbot.message(
-                messages_list, stop_sequences=[self.prompter.stop_sequence], output_checker=self.prompter.check_format
-            )[0]
-            context = self.chatbot.get_content(resp)
-            if context:
-                context = context.rstrip(self.prompter.stop_sequence)  # remove the stop sequence if present
-        except Exception as e:
-            logger.warning(f"Failed to generate context: {e} using {self.chatbot_model}")
-
-        context_pool: list[str] = [context] if context else []
-        # Validate
-        if not context or not self._validate_context(context):
-            validated = False
-            if self.retry_chatbot:
-                logger.info(f"Failed to validate the context using {self.chatbot}, retrying with {self.retry_chatbot}")
-                resp = self.retry_chatbot.message(
+        def _try_generate(bot, label: str) -> str | None:
+            """Attempt one LLM call. Returns content or None on format failure. Raises on deterministic errors."""
+            try:
+                resp = bot.message(
                     messages_list,
                     stop_sequences=[self.prompter.stop_sequence],
                     output_checker=self.prompter.check_format,
                 )[0]
-                context = self.retry_chatbot.get_content(resp)
+                content = bot.get_content(resp)
+                if content:
+                    return content.rstrip(self.prompter.stop_sequence)
+                return None
+            except ChatBotException:
+                # Deterministic error (bad request, auth failure, etc.) -- no point retrying.
+                raise
+            except Exception as e:
+                logger.warning(f"Failed to generate context using {label}: {e}")
+                return None
+
+        # First attempt.
+        context = _try_generate(self.chatbot, str(self.chatbot_model))
+
+        context_pool: list[str] = [context] if context else []
+        if not context or not self._validate_context(context):
+            validated = False
+
+            # Try retry_chatbot if available.
+            if self.retry_chatbot:
+                logger.info(f"Failed to validate the context using {self.chatbot}, retrying with {self.retry_chatbot}")
+                try:
+                    context = _try_generate(self.retry_chatbot, str(self.retry_chatbot))
+                except ChatBotException as e:
+                    logger.warning(f"Retry chatbot also failed with deterministic error: {e}")
+                    context = None
                 if context:
                     context_pool.append(context)
                 if context and self._validate_context(context):
@@ -386,15 +457,11 @@ class ContextReviewerAgent(Agent):
                 else:
                     logger.warning(f"Failed to validate the context using {self.retry_chatbot}: {context}")
 
+            # Retry with main chatbot on format failures.
             if not validated:
                 for i in range(2, 4):
                     logger.warning(f"Retry to generate the context using {self.chatbot} at {i} retries.")
-                    resp = self.chatbot.message(
-                        messages_list,
-                        stop_sequences=[self.prompter.stop_sequence],
-                        output_checker=self.prompter.check_format,
-                    )[0]
-                    context = self.chatbot.get_content(resp)
+                    context = _try_generate(self.chatbot, str(self.chatbot_model))
                     if context:
                         context_pool.append(context)
                     if context and self._validate_context(context):
@@ -411,10 +478,160 @@ class ContextReviewerAgent(Agent):
         if not context:
             context = ""
 
-        if forced_glossary and glossary:
-            context = self.add_external_glossary(context, glossary)
-
         return context
+
+    @staticmethod
+    def _split_texts_by_tokens(texts: list[str], max_text_tokens: int) -> list[list[str]]:
+        """Split texts into chunks where each chunk's total tokens does not exceed max_text_tokens."""
+        chunks: list[list[str]] = []
+        current_chunk: list[str] = []
+        current_tokens = 0
+
+        for line in texts:
+            line_tokens = get_text_token_number(line)
+            if current_tokens + line_tokens > max_text_tokens and current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = []
+                current_tokens = 0
+            current_chunk.append(line)
+            current_tokens += line_tokens
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        return chunks
+
+    def _build_context_chunked(self, texts: list[str], title: str, glossary: dict | None) -> str:
+        """Generate guideline by splitting texts into chunks, generating partial guidelines, then merging."""
+        # Calculate max text tokens per chunk: context_window - system - user_overhead - output_reserve.
+        system_tokens = get_text_token_number(self.prompter.system())
+        user_overhead = get_text_token_number(self.prompter.user("", title=title, given_glossary=glossary))
+        context_window = self.chatbot.model_info.context_window
+        max_text_tokens = int(context_window * 0.95) - system_tokens - user_overhead - self.MIN_OUTPUT_TOKENS
+
+        if max_text_tokens < self.MIN_CHUNK_TEXT_TOKENS:
+            logger.warning(
+                "Context window too small even for chunked generation. "
+                "Consider using a model with a larger context window."
+            )
+            return ""
+
+        chunks = self._split_texts_by_tokens(texts, max_text_tokens)
+        logger.info(f"Split into {len(chunks)} chunks for guideline generation.")
+
+        # Generate partial guidelines.
+        partial_guidelines: list[str] = []
+        for i, chunk in enumerate(chunks):
+            chunk_text = "\n".join(chunk)
+            messages = [
+                {"role": "system", "content": self.prompter.system()},
+                {
+                    "role": "user",
+                    "content": self.prompter.user_partial(
+                        chunk_text,
+                        chunk_index=i + 1,
+                        total_chunks=len(chunks),
+                        title=title,
+                        given_glossary=glossary,
+                    ),
+                },
+            ]
+            try:
+                resp = self.chatbot.message(
+                    messages,
+                    stop_sequences=[self.prompter.stop_sequence],
+                    output_checker=self.prompter.check_format,
+                )[0]
+                content = self.chatbot.get_content(resp)
+                if content:
+                    partial_guidelines.append(content.rstrip(self.prompter.stop_sequence))
+                    logger.info(f"Generated partial guideline {i + 1}/{len(chunks)}.")
+            except Exception as e:
+                logger.warning(f"Failed to generate partial guideline for chunk {i + 1}: {e}")
+
+        if not partial_guidelines:
+            return ""
+
+        # Single chunk succeeded: use it directly.
+        if len(partial_guidelines) == 1:
+            context = partial_guidelines[0]
+        else:
+            context = self._merge_guidelines(partial_guidelines, title)
+
+        # Final validation.
+        if not self._validate_context(context):
+            logger.warning("Chunked guideline failed validation, using best available result.")
+
+        return context or ""
+
+    def _merge_guidelines(self, guidelines: list[str], title: str) -> str:
+        """Merge multiple partial guidelines, using hierarchical merging if needed.
+
+        Estimates whether all guidelines fit in a single merge call. If not,
+        groups them into pairs, merges each pair, and recurses until one remains.
+        """
+        merge_system_tokens = get_text_token_number(self.prompter.merge_system())
+        context_window = self.chatbot.model_info.context_window
+        max_merge_input = int(context_window * 0.95) - merge_system_tokens - self.MIN_OUTPUT_TOKENS
+
+        user_content = self.prompter.merge_user(guidelines, title=title)
+        user_tokens = get_text_token_number(user_content)
+
+        if user_tokens <= max_merge_input:
+            # All guidelines fit in one merge call.
+            return self._merge_call(guidelines, title)
+
+        # Too large: split into pairs and merge hierarchically.
+        logger.info(
+            f"Merge input too large ({user_tokens} tokens), "
+            f"merging hierarchically ({len(guidelines)} guidelines)."
+        )
+        merged: list[str] = []
+        for i in range(0, len(guidelines), 2):
+            pair = guidelines[i : i + 2]
+            if len(pair) == 1:
+                merged.append(pair[0])
+            else:
+                result = self._merge_call(pair, title)
+                merged.append(result)
+
+        if len(merged) == 1:
+            return merged[0]
+
+        # Recurse until one guideline remains.
+        return self._merge_guidelines(merged, title)
+
+    def _merge_call(self, guidelines: list[str], title: str) -> str:
+        """Execute a single merge LLM call with retries. Raises on failure."""
+        merge_messages = [
+            {"role": "system", "content": self.prompter.merge_system()},
+            {"role": "user", "content": self.prompter.merge_user(guidelines, title=title)},
+        ]
+
+        last_error: Exception | None = None
+        for attempt in range(1, self.MERGE_RETRIES + 1):
+            try:
+                resp = self.chatbot.message(
+                    merge_messages,
+                    stop_sequences=[self.prompter.stop_sequence],
+                    output_checker=self.prompter.check_format,
+                )[0]
+                content = self.chatbot.get_content(resp)
+                if content:
+                    content = content.rstrip(self.prompter.stop_sequence)
+                    if self._validate_context(content):
+                        return content
+                    logger.warning(f"Merge attempt {attempt}: output failed validation, retrying.")
+                else:
+                    logger.warning(f"Merge attempt {attempt}: empty response, retrying.")
+            except Exception as e:
+                logger.warning(f"Merge attempt {attempt} failed: {e}")
+                last_error = e
+
+        raise RuntimeError(
+            f"Failed to merge {len(guidelines)} partial guidelines after {self.MERGE_RETRIES} attempts. "
+            f"Consider using a model with a larger context window to avoid chunked generation."
+        ) from last_error
 
     def add_external_glossary(self, context, glossary: dict) -> str:
         """

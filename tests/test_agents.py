@@ -140,3 +140,123 @@ class TestContextReviewerAgent(unittest.TestCase):
         self.assertIn("Summary", context)
         self.assertIn("Tone and Style", context)
         self.assertIn("Target Audience", context)
+
+
+VALID_GUIDELINE = (
+    "### Glossary:\n- suspect: 嫌疑人\n\n"
+    "### Characters:\n- John: 约翰\n\n"
+    "### Summary:\nA detective story.\n\n"
+    "### Tone and Style:\nFormal.\n\n"
+    "### Target Audience:\nAdult viewers."
+)
+
+PARTIAL_GUIDELINE_1 = (
+    "### Glossary:\n- suspect: 嫌疑人\n\n"
+    "### Characters:\n- John: 约翰\n\n"
+    "### Summary:\nJohn investigates.\n\n"
+    "### Tone and Style:\nFormal.\n\n"
+    "### Target Audience:\nAdult viewers."
+)
+
+PARTIAL_GUIDELINE_2 = (
+    "### Glossary:\n- uptown: 市中心\n\n"
+    "### Characters:\n- Sarah: 萨拉\n\n"
+    "### Summary:\nSarah joins the investigation.\n\n"
+    "### Tone and Style:\nFormal.\n\n"
+    "### Target Audience:\nAdult viewers."
+)
+
+MERGED_GUIDELINE = (
+    "### Glossary:\n- suspect: 嫌疑人\n- uptown: 市中心\n\n"
+    "### Characters:\n- John: 约翰\n- Sarah: 萨拉\n\n"
+    "### Summary:\nJohn and Sarah investigate together.\n\n"
+    "### Tone and Style:\nFormal.\n\n"
+    "### Target Audience:\nAdult viewers."
+)
+
+
+def _make_dummy_response(content: str) -> DummyResponse:
+    return DummyResponse(choices=[DummyChoice(message=DummyMessage(content=content))])
+
+
+class TestContextReviewerChunking(unittest.TestCase):
+    """Mock tests for chunked guideline generation."""
+
+    @patch("openlrc.chatbot.GPTBot.message")
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
+    def test_short_text_no_chunking(self, mock_message):
+        """Short text should use single-pass, message called once."""
+        mock_message.return_value = [_make_dummy_response(VALID_GUIDELINE)]
+
+        agent = ContextReviewerAgent("en", "zh")
+        # Large context window: no chunking needed.
+        agent.chatbot.model_info.context_window = 100000
+        result = agent.build_context(["Hello", "World"], title="Test")
+
+        self.assertEqual(mock_message.call_count, 1)
+        self.assertIn("Glossary", result)
+        self.assertIn("Summary", result)
+
+    @patch("openlrc.chatbot.GPTBot.message")
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
+    def test_long_text_triggers_chunking(self, mock_message):
+        """When context window is small and chunked_guideline=True, should split and merge."""
+        mock_message.return_value = [_make_dummy_response(MERGED_GUIDELINE)]
+
+        agent = ContextReviewerAgent("en", "zh", chunked_guideline=True)
+        agent.chatbot.model_info.context_window = 2500
+        agent.chatbot.model_info.max_tokens = 1024
+        texts = [f"Line {i}: Some subtitle text here that is a bit longer." for i in range(200)]
+        result = agent.build_context(texts, title="Test")
+
+        # Should have called message multiple times: N chunks + 1 merge.
+        self.assertGreaterEqual(mock_message.call_count, 3)
+        self.assertIn("Glossary", result)
+
+    @patch("openlrc.chatbot.GPTBot.message")
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
+    def test_long_text_without_flag_returns_empty(self, mock_message):
+        """When chunked_guideline=False (default), long text should return empty without calling LLM."""
+        mock_message.return_value = [_make_dummy_response(VALID_GUIDELINE)]
+
+        agent = ContextReviewerAgent("en", "zh")
+        agent.chatbot.model_info.context_window = 2500
+        agent.chatbot.model_info.max_tokens = 1024
+        texts = [f"Line {i}: Some subtitle text here that is a bit longer." for i in range(200)]
+        result = agent.build_context(texts, title="Test")
+
+        # Should not call LLM at all, return empty guideline.
+        self.assertEqual(mock_message.call_count, 0)
+        self.assertEqual(result, "")
+
+    @patch("openlrc.chatbot.GPTBot.message")
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
+    def test_merge_failure_raises(self, mock_message):
+        """If all merge retries fail, should raise RuntimeError."""
+        from openlrc.exceptions import ChatBotException
+
+        def side_effect_fn(*args, **kwargs):
+            system_content = args[0][0]["content"] if args else ""
+            if "merge" in system_content.lower():
+                raise ChatBotException("merge failed")
+            return [_make_dummy_response(PARTIAL_GUIDELINE_1)]
+
+        mock_message.side_effect = side_effect_fn
+
+        agent = ContextReviewerAgent("en", "zh", chunked_guideline=True)
+        agent.chatbot.model_info.context_window = 2500
+        agent.chatbot.model_info.max_tokens = 1024
+        texts = [f"Line {i}: Some subtitle text here that is a bit longer." for i in range(200)]
+
+        with self.assertRaises(RuntimeError):
+            agent.build_context(texts, title="Test")
+
+    def test_split_texts_by_tokens(self):
+        """Verify token-based splitting produces chunks within budget."""
+        texts = [f"Word{i} " * 10 for i in range(20)]  # ~10 tokens each
+        chunks = ContextReviewerAgent._split_texts_by_tokens(texts, max_text_tokens=50)
+
+        self.assertGreater(len(chunks), 1)
+        # All original lines should be preserved.
+        flat = [line for chunk in chunks for line in chunk]
+        self.assertEqual(flat, texts)

@@ -42,6 +42,7 @@ class LLMTranslator(Translator):
         proxy: str | None = None,
         base_url_config: dict | None = None,
         retry_model: str | ModelConfig | None = None,
+        chunked_guideline: bool = False,
     ):
         """
         Initialize the LLMTranslator with given parameters.
@@ -54,6 +55,7 @@ class LLMTranslator(Translator):
             proxy (Optional[str]): Proxy server URL for API calls.
             base_url_config (Optional[dict]): Base URL configuration for API calls.
             retry_model (Optional[Union[str, ModelConfig]]): Model to use for retry attempts if primary model fails.
+            chunked_guideline (bool): Enable chunked guideline generation for long texts. Default: False.
         """
         self.chatbot_model = chatbot_model
         self.fee_limit = fee_limit
@@ -63,6 +65,7 @@ class LLMTranslator(Translator):
         self.api_fee = 0
         self.intercept_line = intercept_line
         self.retry_model = retry_model
+        self.chunked_guideline = chunked_guideline
         self.use_retry_cnt = 0
 
     @staticmethod
@@ -221,6 +224,7 @@ class LLMTranslator(Translator):
                 self.fee_limit,
                 self.proxy,
                 self.base_url_config,
+                chunked_guideline=self.chunked_guideline,
             )
             guideline = context_reviewer.build_context(
                 texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
