@@ -17,12 +17,22 @@ class ModelConfig:
     """
     Configuration for a specific model.
 
+    Combines identity, connection, and capability parameters into a single
+    config object.  Capability fields (``context_window``, ``max_tokens``)
+    are optional: when set they override the values from the built-in model
+    registry, which is useful for self-hosted or custom models whose
+    capabilities differ from the defaults.
+
     Attributes:
         provider (ModelProvider): The provider of the model.
         name (str): The name of the model.
         base_url (Optional[str]): The base URL for the model API.
         api_key (Optional[str]): The API key for authentication.
         proxy (Optional[str]): The proxy server to use for requests.
+        context_window (Optional[int]): Total context window size in tokens.
+            Overrides the built-in default when set.
+        max_tokens (Optional[int]): Maximum output tokens per request.
+            Overrides the built-in default when set.
     """
 
     provider: ModelProvider
@@ -30,6 +40,8 @@ class ModelConfig:
     base_url: str | None = None
     api_key: str | None = None
     proxy: str | None = None
+    context_window: int | None = None
+    max_tokens: int | None = None
 
     def __str__(self):
         return f"{self.provider.value}:{self.name}"
