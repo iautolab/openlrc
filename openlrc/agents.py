@@ -71,7 +71,7 @@ class Agent(abc.ABC):
                     base_url_config = None
                     logger.warning(f"Unsupported base_url configuration for provider: {chatbot_model.provider}")
 
-            return chatbot_cls(
+            bot = chatbot_cls(
                 model_name=chatbot_model.name,
                 fee_limit=fee_limit,
                 proxy=proxy,
@@ -80,6 +80,19 @@ class Agent(abc.ABC):
                 base_url_config=base_url_config,
                 api_key=chatbot_model.api_key,
             )
+
+            # Override model_info with user-specified capability parameters.
+            # Copy first to avoid mutating the shared registry instance.
+            if chatbot_model.context_window is not None or chatbot_model.max_tokens is not None:
+                from copy import copy
+
+                bot.model_info = copy(bot.model_info)
+                if chatbot_model.context_window is not None:
+                    bot.model_info.context_window = chatbot_model.context_window
+                if chatbot_model.max_tokens is not None:
+                    bot.model_info.max_tokens = chatbot_model.max_tokens
+
+            return bot
         else:
             raise ValueError(f"Invalid chatbot model type: {type(chatbot_model)}. Expected str or ModelConfig.")
 

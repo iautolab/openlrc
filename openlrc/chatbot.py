@@ -89,6 +89,28 @@ class ChatBot:
 
         self.api_fees = []
 
+    def _compute_max_tokens(self, messages: list[dict]) -> int:
+        """Dynamically compute max_tokens based on input size and model context window.
+
+        Prevents context window overflow by capping output tokens to the remaining
+        space after input tokens, with a 5% safety margin for tokenizer estimation error.
+        Returns at least 1024 to avoid overly truncated output.
+        """
+        input_tokens = get_messages_token_number(messages)
+        context_window = self.model_info.context_window
+        model_max = self.model_info.max_tokens
+
+        available = int(context_window * 0.95) - input_tokens
+        computed = min(model_max, max(available, 1024))
+
+        if computed < model_max:
+            logger.info(
+                f"Dynamic max_tokens: {computed} "
+                f"(input={input_tokens}, context_window={context_window}, model_max={model_max})"
+            )
+
+        return computed
+
     def estimate_fee(self, messages: list[dict]):
         """
         Estimate the total fee for the given messages.
@@ -295,7 +317,7 @@ class GPTBot(ChatBot):
                     top_p=self.top_p,
                     response_format={"type": "json_object" if self.json_mode else "text"},  # pyright: ignore[reportArgumentType]
                     stop=stop_sequences,
-                    max_tokens=self.model_info.max_tokens,
+                    max_tokens=self._compute_max_tokens(messages),
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == "length":
@@ -399,6 +421,9 @@ class ClaudeBot(ChatBot):
     ):
         # No need to check stop sequences for Claude (unlimited)
 
+        # Compute max_tokens before popping system message from the list.
+        max_tokens = self._compute_max_tokens(messages)
+
         # Move "system" role into the parameters
         system_msg = NOT_GIVEN
         if messages[0]["role"] == "system":
@@ -414,7 +439,7 @@ class ClaudeBot(ChatBot):
                     temperature=self.temperature,
                     top_p=self.top_p,
                     stop_sequences=stop_sequences or NOT_GIVEN,
-                    max_tokens=self.model_info.max_tokens,
+                    max_tokens=max_tokens,
                 )
                 self.update_fee(response)
 
