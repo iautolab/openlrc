@@ -2,7 +2,7 @@
 #  All rights reserved.
 import abc
 
-from openlrc.agents import TranslationEvaluatorAgent
+from openlrc.agents import TranslationEvaluatorAgent, create_chatbot
 from openlrc.models import ModelConfig
 
 
@@ -26,10 +26,21 @@ class LLMTranslationEvaluator(TranslationEvaluator):
     """
 
     def __init__(self, chatbot_model: str | ModelConfig = "gpt-4.1-nano"):
-        self.agent = TranslationEvaluatorAgent(chatbot_model=chatbot_model)
+        self._chatbot = create_chatbot(chatbot_model)
+        self.agent = TranslationEvaluatorAgent(chatbot=self._chatbot)
 
     def evaluate(self, src_texts, target_texts, src_lang=None, target_lang=None):
         return self.agent.evaluate(src_texts, target_texts)
+
+    def close(self):
+        """Close the underlying chatbot connection."""
+        self._chatbot.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
 
 class EmbeddingTranslationEvaluator(TranslationEvaluator):

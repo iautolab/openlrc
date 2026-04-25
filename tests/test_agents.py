@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 
 from pydantic import BaseModel
 
-from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent, TranslationContext
+from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent, TranslationContext, create_chatbot
+from openlrc.chatbot import GPTBot
 from openlrc.context import TranslateInfo
 from openlrc.models import ModelConfig, ModelProvider
 from openlrc.prompter import ChunkedTranslatePrompter
@@ -58,10 +59,12 @@ class TestTranslatorAgent(unittest.TestCase):
     )
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
     def test_translate_chunk_success(self):
+        bot = GPTBot(api_key="test-dummy")
         agent = ChunkedTranslatorAgent(
             src_lang="en",
             target_lang="fr",
             info=TranslateInfo(title="Example Title", audio_type="Book", glossary={"hello": "bonjour"}),
+            chatbot=bot,
         )
         agent.chatbot.api_fees = [0.00035]
         translations, context = agent.translate_chunk(
@@ -79,7 +82,7 @@ class TestTranslatorAgent(unittest.TestCase):
     #  Handle invalid chatbot model names gracefully
     def test_invalid_chatbot_model(self):
         with self.assertRaises(ValueError):
-            ChunkedTranslatorAgent(src_lang="en", target_lang="fr", info=TranslateInfo(), chatbot_model="invalid-model")
+            create_chatbot("invalid-model")
 
     @patch(
         "openlrc.chatbot.GPTBot.get_content",
@@ -89,7 +92,8 @@ class TestTranslatorAgent(unittest.TestCase):
     )
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
     def test_parse_response_success(self):
-        agent = ChunkedTranslatorAgent(src_lang="en", target_lang="fr")
+        bot = GPTBot(api_key="test-dummy")
+        agent = ChunkedTranslatorAgent(src_lang="en", target_lang="fr", chatbot=bot)
         translations, summary, scene = agent._parse_responses("dummy_response")
 
         self.assertListEqual(translations, ["Bonjour, comment ça va?", "Je vais bien, merci."])
@@ -134,7 +138,8 @@ class TestContextReviewerAgent(unittest.TestCase):
         title = "The Detectors"
         glossary = {"suspect": "嫌疑人", "uptown": "市中心"}
 
-        agent = ContextReviewerAgent("en", "zh", chatbot_model=OPENROUTER_CHEAP_MODEL)
+        bot = create_chatbot(OPENROUTER_CHEAP_MODEL)
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot)
         context = agent.build_context(texts, title, glossary)
 
         self.assertIsNotNone(context)
@@ -192,7 +197,8 @@ class TestContextReviewerChunking(unittest.TestCase):
         """Short text should use single-pass, message called once."""
         mock_message.return_value = [_make_dummy_response(VALID_GUIDELINE)]
 
-        agent = ContextReviewerAgent("en", "zh")
+        bot = GPTBot(api_key="test-dummy")
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot)
         # Large context window: no chunking needed.
         agent.chatbot.model_info.context_window = 100000
         result = agent.build_context(["Hello", "World"], title="Test")
@@ -207,7 +213,8 @@ class TestContextReviewerChunking(unittest.TestCase):
         """When context window is small and chunked_guideline=True, should split and merge."""
         mock_message.return_value = [_make_dummy_response(MERGED_GUIDELINE)]
 
-        agent = ContextReviewerAgent("en", "zh", chunked_guideline=True)
+        bot = GPTBot(api_key="test-dummy")
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
         agent.chatbot.model_info.context_window = 2500
         agent.chatbot.model_info.max_tokens = 1024
         texts = [f"Line {i}: Some subtitle text here that is a bit longer." for i in range(200)]
@@ -223,7 +230,8 @@ class TestContextReviewerChunking(unittest.TestCase):
         """When chunked_guideline=False (default), long text should return empty without calling LLM."""
         mock_message.return_value = [_make_dummy_response(VALID_GUIDELINE)]
 
-        agent = ContextReviewerAgent("en", "zh")
+        bot = GPTBot(api_key="test-dummy")
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot)
         agent.chatbot.model_info.context_window = 2500
         agent.chatbot.model_info.max_tokens = 1024
         texts = [f"Line {i}: Some subtitle text here that is a bit longer." for i in range(200)]
@@ -247,7 +255,8 @@ class TestContextReviewerChunking(unittest.TestCase):
 
         mock_message.side_effect = side_effect_fn
 
-        agent = ContextReviewerAgent("en", "zh", chunked_guideline=True)
+        bot = GPTBot(api_key="test-dummy")
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
         agent.chatbot.model_info.context_window = 2500
         agent.chatbot.model_info.max_tokens = 1024
         texts = [f"Line {i}: Some subtitle text here that is a bit longer." for i in range(200)]
@@ -342,7 +351,8 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     def test_baseline_single_pass(self) -> None:
         """Large-window model generates a valid guideline in one pass."""
-        agent = ContextReviewerAgent("en", "zh", chatbot_model=OPENROUTER_CHEAP_MODEL)
+        bot = create_chatbot(OPENROUTER_CHEAP_MODEL)
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot)
 
         t0 = time.monotonic()
         guideline = agent.build_context(self.lines, title=self.title)
@@ -367,7 +377,8 @@ class TestChunkedGuidelineLive(unittest.TestCase):
         model.context_window = 16384
         model.max_tokens = 4096
 
-        agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+        bot = create_chatbot(model)
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
 
         t0 = time.monotonic()
         guideline = agent.build_context(self.lines, title=self.title)
@@ -395,7 +406,8 @@ class TestChunkedGuidelineLive(unittest.TestCase):
         model.context_window = 8192
         model.max_tokens = 2048
 
-        agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+        bot = create_chatbot(model)
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
 
         t0 = time.monotonic()
         guideline = agent.build_context(self.lines, title=self.title)
@@ -450,7 +462,8 @@ class TestChunkedGuidelineLive(unittest.TestCase):
         results: list[dict] = []
 
         for i in range(runs):
-            agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+            bot = create_chatbot(model)
+            agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
             t0 = time.monotonic()
             try:
                 guideline = agent.build_context(self.lines, title=self.title)
@@ -488,7 +501,8 @@ class TestChunkedGuidelineLive(unittest.TestCase):
         model.context_window = 4096
         model.max_tokens = 1024
 
-        agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+        bot = create_chatbot(model)
+        agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
 
         t0 = time.monotonic()
         guideline = agent.build_context(self.lines, title=self.title)

@@ -66,6 +66,15 @@ class TestMakeChunks(unittest.TestCase):
         self.assertEqual(all_line_numbers, list(range(1, 9)))
 
 
+def _mock_create_chatbot(*args, **kwargs):
+    """Return a lightweight mock ChatBot so translate() can create/close it without real connections."""
+    bot = MagicMock()
+    bot.model_name = "gpt-4.1-nano"
+    bot.close = MagicMock()
+    return bot
+
+
+@patch("openlrc.translate.create_chatbot", side_effect=_mock_create_chatbot)
 @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
 class TestLLMTranslatorTranslate(unittest.TestCase):
     """Mock tests for LLMTranslator.translate() — no real API calls."""
@@ -92,7 +101,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
-    def test_single_chunk(self, mock_agent_cls, mock_reviewer_cls):
+    def test_single_chunk(self, mock_agent_cls, mock_reviewer_cls, _mock_chatbot):
         """Texts fitting in one chunk -> translate_chunk called once, correct result."""
         texts = ["hello", "world"]
         expected = ["你好", "世界"]
@@ -115,7 +124,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
-    def test_multiple_chunks(self, mock_agent_cls, mock_reviewer_cls):
+    def test_multiple_chunks(self, mock_agent_cls, mock_reviewer_cls, _mock_chatbot):
         """Texts spanning 2 chunks -> translate_chunk called twice.
 
         With chunk_size=3 and 6 texts, translate() produces 2 chunks.
@@ -145,7 +154,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
-    def test_context_passing_between_chunks(self, mock_agent_cls, mock_reviewer_cls):
+    def test_context_passing_between_chunks(self, mock_agent_cls, mock_reviewer_cls, _mock_chatbot):
         """Context (summary, scene) from chunk N is passed to chunk N+1."""
         texts = [f"text{i}" for i in range(6)]
         call_contexts = []
@@ -180,7 +189,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
-    def test_length_mismatch_triggers_atomic(self, mock_agent_cls, mock_reviewer_cls):
+    def test_length_mismatch_triggers_atomic(self, mock_agent_cls, mock_reviewer_cls, _mock_chatbot):
         """When translate_chunk returns wrong length, atomic_translate is used as fallback."""
         texts = ["hello", "world"]
 
@@ -207,7 +216,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
-    def test_retry_agent_used_on_primary_failure(self, mock_agent_cls, mock_reviewer_cls):
+    def test_retry_agent_used_on_primary_failure(self, mock_agent_cls, mock_reviewer_cls, _mock_chatbot):
         """When primary agent returns wrong length, retry agent is activated."""
         texts = ["hello", "world"]
 
@@ -246,7 +255,7 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
-    def test_resume_from_compare_file(self, mock_agent_cls, mock_reviewer_cls):
+    def test_resume_from_compare_file(self, mock_agent_cls, mock_reviewer_cls, _mock_chatbot):
         """Translation resumes from saved compare file, skipping already-translated chunks."""
         texts = [f"text{i}" for i in range(6)]
 
