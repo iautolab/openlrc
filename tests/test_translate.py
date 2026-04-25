@@ -7,6 +7,7 @@ from pathlib import Path
 
 import openai
 
+from openlrc.agents import create_chatbot
 from openlrc.models import ModelConfig, ModelProvider
 from openlrc.translate import LLMTranslator
 from openlrc.utils import get_similarity
@@ -90,7 +91,11 @@ class TestLLMTranslator(unittest.TestCase):
         for chatbot_model in test_models:
             texts = ["Hello, how are you?", "I am fine, thank you."]
             translator = LLMTranslator(chatbot_model)
-            translations = translator.atomic_translate(chatbot_model, texts, "en", "zh")
+            chatbot = create_chatbot(chatbot_model)
+            try:
+                translations = translator.atomic_translate(chatbot, texts, "en", "zh")
+            finally:
+                chatbot.close()
             self.assertGreater(get_similarity(translations[0], "你好，你好吗？"), 0.5)
             self.assertGreater(get_similarity(translations[1], "我很好，谢谢。"), 0.5)
 
