@@ -74,13 +74,23 @@ def route_chatbot(model: str) -> tuple[type, str]:
 
 
 class ChatBot:
-    def __init__(self, model_name, temperature=1, top_p=1, retry=8, max_async=16, fee_limit=0.8, beta=False):
+    def __init__(
+        self,
+        model_name: str,
+        temperature: float = 1,
+        top_p: float = 1,
+        retry: int = 8,
+        max_async: int = 16,
+        fee_limit: float = 0.8,
+        beta: bool = False,
+    ):
         try:
             self.model_info = Models.get_model(model_name, beta)
             self.model_name = model_name
         except ValueError:
             raise ValueError(f"Invalid model {model_name}.") from None
 
+        # Default temperature/top_p used when message() is called without explicit values.
         self.temperature = temperature
         self.top_p = top_p
         self.retry = retry
@@ -137,6 +147,8 @@ class ChatBot:
         messages: list[dict],
         stop_sequences: list[str] | None = None,
         output_checker: Callable = lambda user_input, generated_content: True,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ):
         raise NotImplementedError()
 
@@ -145,6 +157,8 @@ class ChatBot:
         messages_list: list[list[dict]],
         stop_sequences: list[str] | None = None,
         output_checker: Callable = lambda user_input, generated_content: True,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ):
         """
         Async send messages to the GPT chatbot.
@@ -152,7 +166,13 @@ class ChatBot:
 
         results = await asyncio.gather(
             *(
-                self._create_achat(message, stop_sequences=stop_sequences, output_checker=output_checker)
+                self._create_achat(
+                    message,
+                    stop_sequences=stop_sequences,
+                    output_checker=output_checker,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
                 for message in messages_list
             )
         )
@@ -164,9 +184,18 @@ class ChatBot:
         messages_list: list[dict] | list[list[dict]],
         stop_sequences: list[str] | None = None,
         output_checker: Callable = lambda user_input, generated_content: True,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ):
         """
-        Send chunked messages to the GPT chatbot.
+        Send chunked messages to the chatbot.
+
+        Args:
+            messages_list: A single message list or a list of message lists for batch processing.
+            stop_sequences: Optional stop sequences to terminate generation.
+            output_checker: Callable to validate the generated output.
+            temperature: Sampling temperature for this call. Falls back to the instance default if None.
+            top_p: Top-p sampling for this call. Falls back to the instance default if None.
         """
         assert messages_list, "Empty message list."
 
@@ -192,7 +221,13 @@ class ChatBot:
 
         try:
             results = asyncio.run(
-                self._amessage(normalised, stop_sequences=stop_sequences, output_checker=output_checker)
+                self._amessage(
+                    normalised,
+                    stop_sequences=stop_sequences,
+                    output_checker=output_checker,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
             )
         except ChatBotException as e:
             logger.error(f"Failed to message with GPT. Error: {e}")
@@ -203,6 +238,19 @@ class ChatBot:
 
         return results
 
+    def close(self):
+        """Close the underlying HTTP client and release resources.
+
+        Safe to call multiple times. Subclasses should override to clean up
+        provider-specific clients.
+        """
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
     def __str__(self):
         return f"ChatBot ({self.model_name})"
 
@@ -211,16 +259,16 @@ class ChatBot:
 class GPTBot(ChatBot):
     def __init__(
         self,
-        model_name="gpt-4.1-nano",
-        temperature=1,
-        top_p=1,
-        retry=8,
-        max_async=16,
-        json_mode=False,
-        fee_limit=0.05,
-        proxy=None,
-        base_url_config=None,
-        api_key=None,
+        model_name: str = "gpt-4.1-nano",
+        temperature: float = 1,
+        top_p: float = 1,
+        retry: int = 8,
+        max_async: int = 16,
+        json_mode: bool = False,
+        fee_limit: float = 0.05,
+        proxy: str | None = None,
+        base_url_config: dict | None = None,
+        api_key: str | None = None,
     ):
 
         # clamp temperature to 0-2
@@ -278,12 +326,6 @@ class GPTBot(ChatBot):
 
         raise ValueError("No API key found. Set OPENAI_API_KEY or pass api_key explicitly.")
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        asyncio.run(self.async_client.close())
-
     def update_fee(self, response: ChatCompletion):
         assert response.usage is not None, "ChatCompletion.usage is None"
         prompt_tokens = response.usage.prompt_tokens
@@ -301,11 +343,17 @@ class GPTBot(ChatBot):
         messages: list[dict],
         stop_sequences: list[str] | None = None,
         output_checker: Callable = lambda user_input, generated_content: True,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ):
         # Check stop sequences
         if stop_sequences and len(stop_sequences) > 4:
             logger.warning("Too many stop sequences. For openai, Only the first 4 will be used.")
             stop_sequences = stop_sequences[:4]
+
+        # Fall back to instance defaults when not specified per-call.
+        effective_temperature = temperature if temperature is not None else self.temperature
+        effective_top_p = top_p if top_p is not None else self.top_p
 
         response = None
         for i in range(self.retry):
@@ -313,8 +361,8 @@ class GPTBot(ChatBot):
                 response = await self.async_client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,  # pyright: ignore[reportArgumentType]
-                    temperature=self.temperature,
-                    top_p=self.top_p,
+                    temperature=effective_temperature,
+                    top_p=effective_top_p,
                     response_format={"type": "json_object" if self.json_mode else "text"},  # pyright: ignore[reportArgumentType]
                     stop=stop_sequences,
                     max_tokens=self._compute_max_tokens(messages),
@@ -370,20 +418,28 @@ class GPTBot(ChatBot):
         else:
             return 15
 
+    def close(self):
+        """Close the async OpenAI client and its underlying HTTP connection pool."""
+        try:
+            asyncio.run(self.async_client.close())
+        except RuntimeError:
+            # Event loop already running or closed; best-effort cleanup.
+            pass
+
 
 @_register_chatbot
 class ClaudeBot(ChatBot):
     def __init__(
         self,
-        model_name="claude-3-5-sonnet-20241022",
-        temperature=1,
-        top_p=1,
-        retry=8,
-        max_async=16,
-        fee_limit=0.8,
-        proxy=None,
-        base_url_config=None,
-        api_key=None,
+        model_name: str = "claude-3-5-sonnet-20241022",
+        temperature: float = 1,
+        top_p: float = 1,
+        retry: int = 8,
+        max_async: int = 16,
+        fee_limit: float = 0.8,
+        proxy: str | None = None,
+        base_url_config: dict | None = None,
+        api_key: str | None = None,
     ):
 
         # clamp temperature to 0-1
@@ -418,11 +474,17 @@ class ClaudeBot(ChatBot):
         messages: list[dict],
         stop_sequences: list[str] | None = None,
         output_checker: Callable = lambda user_input, generated_content: True,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ):
         # No need to check stop sequences for Claude (unlimited)
 
         # Compute max_tokens before popping system message from the list.
         max_tokens = self._compute_max_tokens(messages)
+
+        # Fall back to instance defaults when not specified per-call.
+        effective_temperature = temperature if temperature is not None else self.temperature
+        effective_top_p = top_p if top_p is not None else self.top_p
 
         # Move "system" role into the parameters
         system_msg = NOT_GIVEN
@@ -436,8 +498,8 @@ class ClaudeBot(ChatBot):
                     model=self.model_name,
                     messages=messages,  # pyright: ignore[reportArgumentType]
                     system=system_msg,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
+                    temperature=effective_temperature,
+                    top_p=effective_top_p,
                     stop_sequences=stop_sequences or NOT_GIVEN,
                     max_tokens=max_tokens,
                 )
@@ -489,22 +551,30 @@ class ClaudeBot(ChatBot):
         else:
             return 15
 
+    def close(self):
+        """Close the async Anthropic client and its underlying HTTP connection pool."""
+        try:
+            asyncio.run(self.async_client.close())
+        except RuntimeError:
+            pass
+
 
 @_register_chatbot
 class GeminiBot(ChatBot):
     def __init__(
         self,
-        model_name="gemini-2.5-flash-preview-04-17",
-        temperature=1,
-        top_p=1,
-        retry=8,
-        max_async=16,
-        fee_limit=0.8,
-        proxy=None,
-        base_url_config=None,
-        api_key=None,
+        model_name: str = "gemini-2.5-flash-preview-04-17",
+        temperature: float = 1,
+        top_p: float = 1,
+        retry: int = 8,
+        max_async: int = 16,
+        fee_limit: float = 0.8,
+        proxy: str | None = None,
+        base_url_config: dict | None = None,
+        api_key: str | None = None,
     ):
-        self.temperature = max(0, min(1, temperature))
+        # clamp temperature to 0-1
+        temperature = max(0, min(1, temperature))
 
         super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
 
@@ -514,12 +584,6 @@ class GeminiBot(ChatBot):
         self.client = genai.Client(api_key=api_key or os.environ["GOOGLE_API_KEY"])
 
         # Should not block any translation-related content.
-        # self.safety_settings = {
-        #     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-        #     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-        #     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-        #     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE
-        # }
         self.safety_settings = [
             types.SafetySetting(
                 category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.BLOCK_NONE
@@ -534,9 +598,6 @@ class GeminiBot(ChatBot):
                 category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_NONE
             ),
         ]
-        self.config = types.GenerateContentConfig(
-            temperature=self.temperature, top_p=self.top_p, safety_settings=self.safety_settings
-        )
 
         if proxy:
             logger.warning("Google Gemini SDK does not support proxy, try using the system-level proxy if needed.")
@@ -562,11 +623,17 @@ class GeminiBot(ChatBot):
         messages: list[dict],
         stop_sequences: list[str] | None = None,
         output_checker: Callable = lambda user_input, generated_content: True,
+        temperature: float | None = None,
+        top_p: float | None = None,
     ):
         # Check stop sequences
         if stop_sequences and len(stop_sequences) > 5:
             logger.warning("Too many stop sequences. Only the first 5 will be used.")
             stop_sequences = stop_sequences[:5]
+
+        # Fall back to instance defaults when not specified per-call.
+        effective_temperature = temperature if temperature is not None else self.temperature
+        effective_top_p = top_p if top_p is not None else self.top_p
 
         history_messages = deepcopy(messages)
         system_msg = None
@@ -585,11 +652,14 @@ class GeminiBot(ChatBot):
             content = message.pop("content")
             history_messages[i]["parts"] = [{"text": content}]
 
-        self.config.stop_sequences = stop_sequences
-        # generative_model = genai.GenerativeModel(model_name=self.model_name, generation_config=self.config,
-        #                                          safety_settings=self.safety_settings, system_instruction=system_msg)
-        # client = genai.ChatSession(generative_model, history=history_messages)
-        self.config.system_instruction = system_msg
+        # Build config per-call so temperature/top_p can vary across callers sharing this bot.
+        config = types.GenerateContentConfig(
+            temperature=effective_temperature,
+            top_p=effective_top_p,
+            safety_settings=self.safety_settings,
+            stop_sequences=stop_sequences,
+            system_instruction=system_msg,
+        )
 
         response = None
         for i in range(self.retry):
@@ -597,7 +667,7 @@ class GeminiBot(ChatBot):
             # send_message_async is buggy, so we use send_message instead as a workaround
             # response = client.send_message(user_msg, safety_settings=self.safety_settings)
             response = await self.client.aio.models.generate_content(
-                model=self.model_name, contents=user_msg, config=self.config
+                model=self.model_name, contents=user_msg, config=config
             )
             self.update_fee(response)
             if not response.text:

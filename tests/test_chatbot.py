@@ -2,7 +2,10 @@
 #  All rights reserved.
 import os
 import unittest
+from unittest.mock import patch
 
+import httpx
+import openai
 from pydantic import BaseModel
 
 from openlrc.chatbot import ClaudeBot, GPTBot, route_chatbot
@@ -182,6 +185,45 @@ class TestChatBot(unittest.TestCase):
         self.assertEqual(chatbot2.temperature, 0)
         self.assertEqual(chatbot3.temperature, 1)
         self.assertEqual(chatbot4.temperature, 0)
+
+    def test_per_call_temperature_overrides_default(self):
+        """message(temperature=X) should override the instance default set in __init__."""
+        bot = GPTBot(model_name="gpt-4.1-nano", temperature=1.0, api_key="test-key")
+
+        # Mock the async completion call to capture the temperature it receives.
+        captured: list[float | None] = []
+
+        async def fake_create(**kwargs: object) -> None:
+            captured.append(kwargs.get("temperature"))  # type: ignore[arg-type]
+            raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
+
+        with patch.object(bot.async_client.chat.completions, "create", side_effect=fake_create):
+            try:
+                bot.message([{"role": "user", "content": "hi"}], temperature=0.3)
+            except Exception:
+                pass
+
+        self.assertTrue(len(captured) > 0, "No API call was captured")
+        self.assertEqual(captured[0], 0.3)
+
+    def test_default_temperature_used_when_not_overridden(self):
+        """message() without temperature should use the instance default from __init__."""
+        bot = GPTBot(model_name="gpt-4.1-nano", temperature=0.7, api_key="test-key")
+
+        captured: list[float | None] = []
+
+        async def fake_create(**kwargs: object) -> None:
+            captured.append(kwargs.get("temperature"))  # type: ignore[arg-type]
+            raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
+
+        with patch.object(bot.async_client.chat.completions, "create", side_effect=fake_create):
+            try:
+                bot.message([{"role": "user", "content": "hi"}])
+            except Exception:
+                pass
+
+        self.assertTrue(len(captured) > 0, "No API call was captured")
+        self.assertEqual(captured[0], 0.7)
 
 
 class TestThirdPartyBot(unittest.TestCase):
