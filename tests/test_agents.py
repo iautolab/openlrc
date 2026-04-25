@@ -139,6 +139,7 @@ class TestContextReviewerAgent(unittest.TestCase):
         glossary = {"suspect": "嫌疑人", "uptown": "市中心"}
 
         bot = create_chatbot(OPENROUTER_CHEAP_MODEL)
+        self.addCleanup(bot.close)
         agent = ContextReviewerAgent("en", "zh", chatbot=bot)
         context = agent.build_context(texts, title, glossary)
 
@@ -352,6 +353,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
     def test_baseline_single_pass(self) -> None:
         """Large-window model generates a valid guideline in one pass."""
         bot = create_chatbot(OPENROUTER_CHEAP_MODEL)
+        self.addCleanup(bot.close)
         agent = ContextReviewerAgent("en", "zh", chatbot=bot)
 
         t0 = time.monotonic()
@@ -378,6 +380,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
         model.max_tokens = 4096
 
         bot = create_chatbot(model)
+        self.addCleanup(bot.close)
         agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
 
         t0 = time.monotonic()
@@ -407,6 +410,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
         model.max_tokens = 2048
 
         bot = create_chatbot(model)
+        self.addCleanup(bot.close)
         agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
 
         t0 = time.monotonic()
@@ -463,6 +467,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
         for i in range(runs):
             bot = create_chatbot(model)
+            self.addCleanup(bot.close)
             agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
             t0 = time.monotonic()
             try:
@@ -502,6 +507,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
         model.max_tokens = 1024
 
         bot = create_chatbot(model)
+        self.addCleanup(bot.close)
         agent = ContextReviewerAgent("en", "zh", chatbot=bot, chunked_guideline=True)
 
         t0 = time.monotonic()
