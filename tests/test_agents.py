@@ -320,7 +320,7 @@ def _print_guideline(label: str, guideline: str) -> None:
     print(separator)
 
 
-@unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1 and valid API keys")
+@unittest.skipUnless(STRESS_TEST, "Requires OPENLRC_TEST_STRESS=1 (uses live LLM API with simulated small context windows)")
 class TestChunkedGuidelineLive(unittest.TestCase):
     """Live integration tests for chunked guideline generation.
 
@@ -404,7 +404,6 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     # -- Test C: chunked generation with simulated 8K window -------------------
 
-    @unittest.skipUnless(STRESS_TEST, "Requires OPENLRC_TEST_STRESS=1 (tokenizer mismatch may cause failures on CI)")
     def test_chunked_8k_window(self) -> None:
         """Simulated 8K window triggers ~6 chunks; merged guideline should be non-empty."""
         model = copy(OPENROUTER_CHEAP_MODEL)
@@ -458,7 +457,6 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     # -- Test E: latency and reliability (3 runs) -----------------------------
 
-    @unittest.skipUnless(STRESS_TEST, "Requires OPENLRC_TEST_STRESS=1 (tokenizer mismatch may cause failures on CI)")
     def test_latency_and_reliability(self) -> None:
         """Run chunked generation multiple times and log latency/success statistics."""
         model = copy(OPENROUTER_CHEAP_MODEL)
@@ -503,7 +501,6 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     # -- Test F: stress test with 4K window (hierarchical merge) ---------------
 
-    @unittest.skipUnless(STRESS_TEST, "Requires OPENLRC_TEST_STRESS=1 (tokenizer mismatch may cause failures on CI)")
     def test_stress_4k_window(self) -> None:
         """4K window forces ~15 chunks and hierarchical merging; must not crash."""
         model = copy(OPENROUTER_CHEAP_MODEL)
