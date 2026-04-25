@@ -374,6 +374,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     # -- Test B: chunked generation with simulated 16K window ------------------
 
+    @unittest.skipUnless(STRESS_TEST, "Requires OPENLRC_TEST_STRESS=1 (tokenizer mismatch may cause failures on CI)")
     def test_chunked_16k_window(self) -> None:
         """Simulated 16K window triggers ~3 chunks; closest to the real scenario in PR #103."""
         model = copy(OPENROUTER_CHEAP_MODEL)
