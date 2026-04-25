@@ -10,12 +10,11 @@ from pathlib import Path
 
 import requests
 
-from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent, create_chatbot
+from openlrc.agents import ChunkedTranslatorAgent, ContextReviewerAgent
 from openlrc.chatbot import ChatBot
 from openlrc.context import TranslateInfo, TranslationContext
 from openlrc.exceptions import ChatBotException
 from openlrc.logger import logger
-from openlrc.models import ModelConfig
 from openlrc.prompter import AtomicTranslatePrompter
 
 
@@ -36,36 +35,28 @@ class LLMTranslator(Translator):
 
     def __init__(
         self,
-        chatbot_model: str | ModelConfig = "gpt-4.1-nano",
-        fee_limit: float = 0.8,
+        *,
+        chatbot: ChatBot,
+        retry_chatbot: ChatBot | None = None,
         chunk_size: int = CHUNK_SIZE,
         intercept_line: int | None = None,
-        proxy: str | None = None,
-        base_url_config: dict | None = None,
-        retry_model: str | ModelConfig | None = None,
         chunked_guideline: bool = False,
     ):
         """
         Initialize the LLMTranslator with given parameters.
 
         Args:
-            chatbot_model (Union[str, ModelConfig]): Name or ModelConfig of the primary chatbot model to use for translation.
-            fee_limit (float): Maximum fee limit for API calls to prevent unexpected costs.
-            chunk_size (int): Size of text chunks for processing, balancing efficiency and context.
-            intercept_line (Optional[int]): Line number to intercept translation, useful for debugging.
-            proxy (Optional[str]): Proxy server URL for API calls.
-            base_url_config (Optional[dict]): Base URL configuration for API calls.
-            retry_model (Optional[Union[str, ModelConfig]]): Model to use for retry attempts if primary model fails.
-            chunked_guideline (bool): Enable chunked guideline generation for long texts. Default: False.
+            chatbot: Primary ChatBot instance for translation.
+            retry_chatbot: Optional ChatBot instance for retry attempts.
+            chunk_size: Size of text chunks for processing, balancing efficiency and context.
+            intercept_line: Line number to intercept translation, useful for debugging.
+            chunked_guideline: Enable chunked guideline generation for long texts. Default: False.
         """
-        self.chatbot_model = chatbot_model
-        self.fee_limit = fee_limit
-        self.proxy = proxy
-        self.base_url_config = base_url_config
+        self.chatbot = chatbot
+        self.retry_chatbot = retry_chatbot
         self.chunk_size = chunk_size
         self.api_fee = 0
         self.intercept_line = intercept_line
-        self.retry_model = retry_model
         self.chunked_guideline = chunked_guideline
         self.use_retry_cnt = 0
 
@@ -195,76 +186,66 @@ class LLMTranslator(Translator):
         if not isinstance(texts, list):
             texts = [texts]
 
-        chatbot = create_chatbot(self.chatbot_model, self.fee_limit, self.proxy, self.base_url_config)
-        retry_bot = (
-            create_chatbot(self.retry_model, self.fee_limit, self.proxy, self.base_url_config)
-            if self.retry_model
+        translator_agent = ChunkedTranslatorAgent(src_lang, target_lang, info, chatbot=self.chatbot)
+
+        retry_agent = (
+            ChunkedTranslatorAgent(src_lang, target_lang, info, chatbot=self.retry_chatbot)
+            if self.retry_chatbot
             else None
         )
 
-        try:
-            translator_agent = ChunkedTranslatorAgent(src_lang, target_lang, info, chatbot=chatbot)
+        # proofreader = ProofreaderAgent(src_lang, target_lang, info, chatbot=self.chatbot)
 
-            retry_agent = ChunkedTranslatorAgent(src_lang, target_lang, info, chatbot=retry_bot) if retry_bot else None
+        chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
+        logger.info(f"Translating {info.title}: {len(chunks)} chunks, {len(texts)} lines in total.")
 
-            # proofreader = ProofreaderAgent(src_lang, target_lang, info, chatbot=chatbot)
+        translations, summaries, compare_list, start_chunk, guideline = self._resume_translation(compare_path)
+        if not guideline:
+            logger.info("Building translation guideline.")
+            context_reviewer = ContextReviewerAgent(
+                src_lang,
+                target_lang,
+                info,
+                chatbot=self.chatbot,
+                retry_chatbot=self.retry_chatbot,
+                chunked_guideline=self.chunked_guideline,
+            )
+            guideline = context_reviewer.build_context(
+                texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
+            )
+            logger.info(f"Translation Guideline:\n{guideline}")
 
-            chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
-            logger.info(f"Translating {info.title}: {len(chunks)} chunks, {len(texts)} lines in total.")
+        context = TranslationContext(guideline=guideline, previous_summaries=summaries)
+        for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
+            atomic = False
+            translated, context = self._translate_chunk(translator_agent, chunk, context, i, retry_agent=retry_agent)
+            chunk_texts = [c[1] for c in chunk]
+            # Proofreader Not fully tested
+            # localized_trans = proofreader.proofread(
+            #     texts=chunk_texts, translations=translated, context=context
+            # )
 
-            translations, summaries, compare_list, start_chunk, guideline = self._resume_translation(compare_path)
-            if not guideline:
-                logger.info("Building translation guideline.")
-                context_reviewer = ContextReviewerAgent(
-                    src_lang,
-                    target_lang,
-                    info,
-                    chatbot=chatbot,
-                    retry_chatbot=retry_bot,
-                    chunked_guideline=self.chunked_guideline,
+            if len(translated) != len(chunk):
+                logger.warning(
+                    f"Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},"
+                    f" Attempting atomic translation."
                 )
-                guideline = context_reviewer.build_context(
-                    texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
-                )
-                logger.info(f"Translation Guideline:\n{guideline}")
+                translated = self.atomic_translate(self.chatbot, chunk_texts, src_lang, target_lang)
+                atomic = True
 
-            context = TranslationContext(guideline=guideline, previous_summaries=summaries)
-            for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
-                atomic = False
-                translated, context = self._translate_chunk(
-                    translator_agent, chunk, context, i, retry_agent=retry_agent
-                )
-                chunk_texts = [c[1] for c in chunk]
-                # Proofreader Not fully tested
-                # localized_trans = proofreader.proofread(
-                #     texts=chunk_texts, translations=translated, context=context
-                # )
+            translations.extend(translated)
+            summaries.append(context.summary or "")
+            logger.info(f"Translated {info.title}: {i}/{len(chunks)}")
+            logger.info(f"Summary: {context.summary}")
+            logger.info(f"Scene: {context.scene}")
 
-                if len(translated) != len(chunk):
-                    logger.warning(
-                        f"Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},"
-                        f" Attempting atomic translation."
-                    )
-                    translated = self.atomic_translate(chatbot, chunk_texts, src_lang, target_lang)
-                    atomic = True
+            compare_list.extend(self._generate_compare_list(chunk, translated, i, atomic, context))
+            self._save_intermediate_results(compare_path, compare_list, summaries, context.scene or "", guideline)
+            context.previous_summaries = summaries
 
-                translations.extend(translated)
-                summaries.append(context.summary or "")
-                logger.info(f"Translated {info.title}: {i}/{len(chunks)}")
-                logger.info(f"Summary: {context.summary}")
-                logger.info(f"Scene: {context.scene}")
+        self.api_fee += translator_agent.cost + (retry_agent.cost if retry_agent else 0)
 
-                compare_list.extend(self._generate_compare_list(chunk, translated, i, atomic, context))
-                self._save_intermediate_results(compare_path, compare_list, summaries, context.scene or "", guideline)
-                context.previous_summaries = summaries
-
-            self.api_fee += translator_agent.cost + (retry_agent.cost if retry_agent else 0)
-
-            return translations
-        finally:
-            chatbot.close()
-            if retry_bot:
-                retry_bot.close()
+        return translations
 
     def _resume_translation(self, compare_path: Path) -> tuple[list[str], list[str], list[dict], int, str]:
         """
