@@ -17,6 +17,14 @@ from openlrc.utils import extend_filename
 _TEST_TRANSCRIPTION = TranscriptionConfig(whisper_model="tiny", compute_type="default", device="cpu")
 
 
+def _mock_create_chatbot(*args, **kwargs):
+    """Return a lightweight mock ChatBot for tests that hit LRCer._translate()."""
+    bot = MagicMock()
+    bot.model_name = "gpt-4.1-nano"
+    bot.close = MagicMock()
+    return bot
+
+
 @patch("openlrc.transcribe.BatchedInferencePipeline", MagicMock())
 @patch(
     "openlrc.transcribe.Transcriber.transcribe",
@@ -54,6 +62,7 @@ _TEST_TRANSCRIPTION = TranscriptionConfig(whisper_model="tiny", compute_type="de
         )
     ),
 )
+@patch("openlrc.agents.create_chatbot", side_effect=_mock_create_chatbot)
 class TestLRCer(unittest.TestCase):
     def setUp(self) -> None:
         self.audio_path = Path("data/test_audio.wav")
@@ -90,7 +99,7 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_single_audio_transcription_translation(self):
+    def test_single_audio_transcription_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.run(self.audio_path)
         self.assertTrue(result)
@@ -98,13 +107,13 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_multiple_audio_transcription_translation(self):
+    def test_multiple_audio_transcription_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.run([self.audio_path, self.video_path])
         self.assertTrue(result)
         self.assertEqual(len(result), 2)
 
-    def test_audio_file_not_found(self):
+    def test_audio_file_not_found(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         with self.assertRaises(FileNotFoundError):
             lrcer.run("data/invalid.mp3")
@@ -112,7 +121,7 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_video_file_transcription_translation(self):
+    def test_video_file_transcription_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.run("data/test_video.mp4")
         self.assertTrue(result)
@@ -120,19 +129,19 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_nospeech_video_file_transcription_translation(self):
+    def test_nospeech_video_file_transcription_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.run("data/test_nospeech_video.mp4")
         self.assertTrue(result)
 
     @patch("openlrc.translate.LLMTranslator.translate", MagicMock(side_effect=Exception("test exception")))
-    def test_translation_error(self):
+    def test_translation_error(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         with self.assertRaises(Exception):
             lrcer.run(self.audio_path)
 
     @patch("openlrc.translate.LLMTranslator.translate", MagicMock(side_effect=Exception("test exception")))
-    def test_skip_translation(self):
+    def test_skip_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.run("data/test_video.mp4", skip_trans=True)
         self.assertTrue(result)
@@ -140,7 +149,7 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_skip_preprocess(self):
+    def test_skip_preprocess(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
 
         # Stage 1: Run preprocessing only
@@ -156,7 +165,7 @@ class TestLRCer(unittest.TestCase):
         result = lrcer.run(self.audio_path, skip_preprocess=True)
         self.assertTrue(result)
 
-    def test_skip_preprocess_file_not_found(self):
+    def test_skip_preprocess_file_not_found(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
 
         # Ensure no preprocessed file exists
@@ -171,7 +180,7 @@ class TestLRCer(unittest.TestCase):
 
     @patch("openlrc.translate.LLMTranslator.translate")
     @patch("openlrc.openlrc.LRCer.post_process", wraps=LRCer.post_process)
-    def test_skip_trans_skips_translate_but_calls_post_process(self, mock_post_process, mock_translate):
+    def test_skip_trans_skips_translate_but_calls_post_process(self, mock_post_process, mock_translate, _mock_chatbot):
         """skip_trans=True should skip translation but still post-process transcription."""
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         lrcer.run(self.audio_path, skip_trans=True)
@@ -179,7 +188,7 @@ class TestLRCer(unittest.TestCase):
         mock_post_process.assert_called()
 
     @patch("openlrc.translate.LLMTranslator.translate")
-    def test_normal_run_calls_translate(self, mock_translate):
+    def test_normal_run_calls_translate(self, mock_translate, _mock_chatbot):
         """skip_trans=False (default) should invoke LLMTranslator.translate."""
         mock_translate.return_value = ["test translation1", "test translation2"]
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
@@ -187,7 +196,7 @@ class TestLRCer(unittest.TestCase):
         mock_translate.assert_called()
 
     @patch("openlrc.translate.LLMTranslator.translate")
-    def test_transcribe_returns_json_paths(self, mock_translate):
+    def test_transcribe_returns_json_paths(self, mock_translate, _mock_chatbot):
         """transcribe() should return transcribed JSON paths without triggering translation."""
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.transcribe(self.audio_path)
@@ -197,7 +206,7 @@ class TestLRCer(unittest.TestCase):
         mock_translate.assert_not_called()
 
     @patch("openlrc.translate.LLMTranslator.translate")
-    def test_translate_processes_transcribed_json(self, mock_translate):
+    def test_translate_processes_transcribed_json(self, mock_translate, _mock_chatbot):
         """translate() should process transcribed JSON files and produce subtitle output."""
         mock_translate.return_value = ["test translation1", "test translation2"]
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
@@ -216,7 +225,7 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_translate_independent_video_transcription_outputs_srt(self):
+    def test_translate_independent_video_transcription_outputs_srt(self, _mock_chatbot):
         """translate() should keep video-origin output as .srt even on a fresh LRCer."""
         lrcer_transcribe = LRCer(transcription=_TEST_TRANSCRIPTION)
         transcribed = lrcer_transcribe.transcribe(self.video_path)
@@ -228,7 +237,7 @@ class TestLRCer(unittest.TestCase):
         self.assertEqual(result[0].suffix, ".srt")
 
     @patch("openlrc.translate.LLMTranslator.translate")
-    def test_run_skip_trans_deduplicates_duplicate_inputs(self, mock_translate):
+    def test_run_skip_trans_deduplicates_duplicate_inputs(self, mock_translate, _mock_chatbot):
         """run(skip_trans=True) should transcribe duplicate input paths only once."""
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.run([self.audio_path, self.audio_path], skip_trans=True)
@@ -239,7 +248,7 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_run_full_pipeline(self):
+    def test_run_full_pipeline(self, _mock_chatbot):
         """run() with default args should produce subtitle output (full pipeline)."""
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         result = lrcer.run(self.audio_path)
@@ -250,7 +259,7 @@ class TestLRCer(unittest.TestCase):
     # Config and constructor tests
     # ------------------------------------------------------------------
 
-    def test_translate_only_does_not_instantiate_transcriber(self):
+    def test_translate_only_does_not_instantiate_transcriber(self, _mock_chatbot):
         """LRCer with only TranslationConfig should not create a Transcriber."""
         lrcer = LRCer(translation=TranslationConfig())
         # Access the private attribute directly — should be None (lazy init).
@@ -259,14 +268,14 @@ class TestLRCer(unittest.TestCase):
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
-    def test_transcriber_created_on_first_transcribe_call(self):
+    def test_transcriber_created_on_first_transcribe_call(self, _mock_chatbot):
         """Transcriber should be lazily created when transcribe() is first called."""
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         self.assertIsNone(lrcer._transcriber)
         lrcer.transcribe(self.audio_path)
         self.assertIsNotNone(lrcer._transcriber)
 
-    def test_default_option_merging_parity(self):
+    def test_default_option_merging_parity(self, _mock_chatbot):
         """Config-based construction should merge default options the same as legacy kwargs."""
         from openlrc.defaults import default_asr_options
 
@@ -306,7 +315,7 @@ class TestLRCer(unittest.TestCase):
         self.assertEqual(config_based.vad_options["threshold"], 0.7)
         self.assertEqual(config_based.preprocess_options["atten_lim_db"], 20)
 
-    def test_legacy_and_config_equivalent_runtime_behavior(self):
+    def test_legacy_and_config_equivalent_runtime_behavior(self, _mock_chatbot):
         """Legacy kwargs and config objects should produce equivalent LRCer state."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
@@ -334,19 +343,19 @@ class TestLRCer(unittest.TestCase):
         self.assertEqual(legacy.fee_limit, config_based.fee_limit)
         self.assertEqual(legacy.consumer_thread, config_based.consumer_thread)
 
-    def test_legacy_kwargs_emit_deprecation_warning(self):
+    def test_legacy_kwargs_emit_deprecation_warning(self, _mock_chatbot):
         """Legacy keyword arguments should emit a DeprecationWarning."""
         with self.assertWarns(DeprecationWarning):
             LRCer(whisper_model="tiny", device="cpu", compute_type="default")
 
-    def test_mixing_legacy_and_config_raises_error(self):
+    def test_mixing_legacy_and_config_raises_error(self, _mock_chatbot):
         """Passing both legacy kwargs and config objects should raise ValueError."""
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             with self.assertRaises(ValueError):
                 LRCer(whisper_model="tiny", transcription=TranscriptionConfig(whisper_model="tiny"))
 
-    def test_default_construction_without_arguments(self):
+    def test_default_construction_without_arguments(self, _mock_chatbot):
         """LRCer() with no arguments should use default configs."""
         lrcer = LRCer()
         self.assertEqual(lrcer._transcription_config.whisper_model, "large-v3")
