@@ -1,8 +1,12 @@
 #  Copyright (C) 2025. Hao Zheng
 #  All rights reserved.
 
+import json
 import os
+import time
 import unittest
+from copy import copy
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from pydantic import BaseModel
@@ -260,3 +264,244 @@ class TestContextReviewerChunking(unittest.TestCase):
         # All original lines should be preserved.
         flat = [line for chunk in chunks for line in chunk]
         self.assertEqual(flat, texts)
+
+
+# ---------------------------------------------------------------------------
+# Helpers for live chunked-guideline integration tests
+# ---------------------------------------------------------------------------
+
+LONG_SUBTITLE_PATH = Path(__file__).parent / "data" / "test_long_subtitle.json"
+
+# Known entities in the Jensen Huang / Lex Fridman podcast that a guideline
+# should capture.  These are used to measure recall, not as an exhaustive list.
+EXPECTED_CHARACTERS = {"Jensen Huang", "Lex Fridman", "Elon Musk"}
+EXPECTED_GLOSSARY_TERMS = {"CUDA", "NVLink", "TSMC", "GPU", "scaling law", "AGI"}
+REQUIRED_SECTIONS = ["Glossary", "Characters", "Summary", "Tone and Style", "Target Audience"]
+
+
+def _recall(guideline: str, expected: set[str]) -> tuple[float, set[str], set[str]]:
+    """Check what fraction of *expected* terms appear anywhere in *guideline* (case-insensitive).
+
+    Returns (recall, found, missed) so callers can log details.
+    This avoids fragile markdown-section parsing -- we simply search the full
+    guideline text for each expected term.
+    """
+    if not expected:
+        return 1.0, set(), set()
+    lowered = guideline.lower()
+    found = {e for e in expected if e.lower() in lowered}
+    missed = expected - found
+    return len(found) / len(expected), found, missed
+
+
+def _has_all_sections(guideline: str) -> bool:
+    lowered = guideline.lower()
+    return all(s.lower() in lowered for s in REQUIRED_SECTIONS)
+
+
+def _print_guideline(label: str, guideline: str) -> None:
+    """Print the full guideline text with a clear header/footer for easy reading."""
+    separator = "=" * 72
+    print(f"\n{separator}")
+    print(f"  GUIDELINE OUTPUT: {label}")
+    print(separator)
+    print(guideline)
+    print(separator)
+
+
+@unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1 and valid API keys")
+class TestChunkedGuidelineLive(unittest.TestCase):
+    """Live integration tests for chunked guideline generation.
+
+    Uses a ~30 000-token podcast transcript (Jensen Huang on Lex Fridman #494)
+    to verify that chunked generation produces a guideline comparable to
+    single-pass generation.  Addresses the review concerns in PR #103:
+      1. Do characters / glossary terms survive the merge?
+      2. Is the summary coherent?
+      3. What are the latency and success rate?
+    """
+
+    lines: list[str]
+    title: str
+    _baseline_guideline: str = ""
+    _chunked_guideline: str = ""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if not OPENROUTER_API_KEY:
+            raise unittest.SkipTest("OPENROUTER_API_KEY is required for LLM integration tests.")
+        if not LONG_SUBTITLE_PATH.exists():
+            raise unittest.SkipTest(f"Test fixture not found: {LONG_SUBTITLE_PATH}")
+
+        with open(LONG_SUBTITLE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        cls.lines = data["lines"]
+        cls.title = data["title"]
+
+    # -- Test A: baseline single-pass with large context window ----------------
+
+    def test_baseline_single_pass(self) -> None:
+        """Large-window model generates a valid guideline in one pass."""
+        agent = ContextReviewerAgent("en", "zh", chatbot_model=OPENROUTER_CHEAP_MODEL)
+
+        t0 = time.monotonic()
+        guideline = agent.build_context(self.lines, title=self.title)
+        elapsed = time.monotonic() - t0
+
+        self.assertTrue(_has_all_sections(guideline), "Baseline guideline missing required sections")
+
+        g_recall, g_found, g_missed = _recall(guideline, EXPECTED_GLOSSARY_TERMS)
+        c_recall, c_found, c_missed = _recall(guideline, EXPECTED_CHARACTERS)
+        print(f"\n[baseline] time={elapsed:.1f}s")
+        print(f"[baseline] glossary recall={g_recall:.2f}  found={g_found}  missed={g_missed}")
+        print(f"[baseline] character recall={c_recall:.2f}  found={c_found}  missed={c_missed}")
+        _print_guideline("baseline (single-pass)", guideline)
+
+        self.__class__._baseline_guideline = guideline
+
+    # -- Test B: chunked generation with simulated 16K window ------------------
+
+    def test_chunked_16k_window(self) -> None:
+        """Simulated 16K window triggers ~3 chunks; closest to the real scenario in PR #103."""
+        model = copy(OPENROUTER_CHEAP_MODEL)
+        model.context_window = 16384
+        model.max_tokens = 4096
+
+        agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+
+        t0 = time.monotonic()
+        guideline = agent.build_context(self.lines, title=self.title)
+        elapsed = time.monotonic() - t0
+
+        # Hard requirement: chunked path must produce *something*.
+        self.assertTrue(len(guideline) > 0, "Chunked 16K guideline is empty")
+
+        # Soft metrics: log for review but do not fail the test.
+        has_sections = _has_all_sections(guideline)
+        g_recall, g_found, g_missed = _recall(guideline, EXPECTED_GLOSSARY_TERMS)
+        c_recall, c_found, c_missed = _recall(guideline, EXPECTED_CHARACTERS)
+        print(f"\n[chunked-16k] time={elapsed:.1f}s  all_sections={has_sections}")
+        print(f"[chunked-16k] glossary recall={g_recall:.2f}  found={g_found}  missed={g_missed}")
+        print(f"[chunked-16k] character recall={c_recall:.2f}  found={c_found}  missed={c_missed}")
+        _print_guideline("chunked (16K window, ~3 chunks)", guideline)
+
+        self.__class__._chunked_guideline = guideline
+
+    # -- Test C: chunked generation with simulated 8K window -------------------
+
+    def test_chunked_8k_window(self) -> None:
+        """Simulated 8K window triggers ~6 chunks; merged guideline should be non-empty."""
+        model = copy(OPENROUTER_CHEAP_MODEL)
+        model.context_window = 8192
+        model.max_tokens = 2048
+
+        agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+
+        t0 = time.monotonic()
+        guideline = agent.build_context(self.lines, title=self.title)
+        elapsed = time.monotonic() - t0
+
+        # Hard requirement: chunked path must produce *something*.
+        self.assertTrue(len(guideline) > 0, "Chunked guideline is empty")
+
+        # Soft metrics: log for review but do not fail the test.
+        has_sections = _has_all_sections(guideline)
+        g_recall, g_found, g_missed = _recall(guideline, EXPECTED_GLOSSARY_TERMS)
+        c_recall, c_found, c_missed = _recall(guideline, EXPECTED_CHARACTERS)
+        print(f"\n[chunked-8k] time={elapsed:.1f}s  all_sections={has_sections}")
+        print(f"[chunked-8k] glossary recall={g_recall:.2f}  found={g_found}  missed={g_missed}")
+        print(f"[chunked-8k] character recall={c_recall:.2f}  found={c_found}  missed={c_missed}")
+        _print_guideline("chunked (8K window, ~6 chunks)", guideline)
+
+        self.__class__._chunked_guideline = guideline
+
+    # -- Test D: quality comparison between baseline and chunked ---------------
+
+    def test_quality_comparison(self) -> None:
+        """Log quality comparison between baseline and chunked guidelines (informational only)."""
+        baseline = self.__class__._baseline_guideline
+        chunked = self.__class__._chunked_guideline
+
+        if not baseline or not chunked:
+            self.skipTest("Baseline or chunked results not available (earlier test may have failed)")
+
+        # All metrics are logged for PR review but do not cause test failure.
+        bg_recall, bg_found, bg_missed = _recall(baseline, EXPECTED_GLOSSARY_TERMS)
+        cg_recall, cg_found, cg_missed = _recall(chunked, EXPECTED_GLOSSARY_TERMS)
+        bc_recall, bc_found, bc_missed = _recall(baseline, EXPECTED_CHARACTERS)
+        cc_recall, cc_found, cc_missed = _recall(chunked, EXPECTED_CHARACTERS)
+
+        print(f"\n[comparison] baseline glossary recall={bg_recall:.2f}  found={bg_found}  missed={bg_missed}")
+        print(f"[comparison] chunked  glossary recall={cg_recall:.2f}  found={cg_found}  missed={cg_missed}")
+        print(f"[comparison] baseline character recall={bc_recall:.2f}  found={bc_found}  missed={bc_missed}")
+        print(f"[comparison] chunked  character recall={cc_recall:.2f}  found={cc_found}  missed={cc_missed}")
+        print(f"[comparison] baseline all_sections={_has_all_sections(baseline)}")
+        print(f"[comparison] chunked  all_sections={_has_all_sections(chunked)}")
+
+    # -- Test E: latency and reliability (3 runs) -----------------------------
+
+    def test_latency_and_reliability(self) -> None:
+        """Run chunked generation multiple times and log latency/success statistics."""
+        model = copy(OPENROUTER_CHEAP_MODEL)
+        model.context_window = 8192
+        model.max_tokens = 2048
+
+        runs = 3
+        results: list[dict] = []
+
+        for i in range(runs):
+            agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+            t0 = time.monotonic()
+            try:
+                guideline = agent.build_context(self.lines, title=self.title)
+                elapsed = time.monotonic() - t0
+                results.append(
+                    {
+                        "run": i + 1,
+                        "success": True,
+                        "time_sec": round(elapsed, 1),
+                        "has_all_sections": _has_all_sections(guideline),
+                        "output_length": len(guideline),
+                    }
+                )
+            except Exception as e:
+                elapsed = time.monotonic() - t0
+                results.append({"run": i + 1, "success": False, "time_sec": round(elapsed, 1), "error": str(e)})
+
+        successes = sum(1 for r in results if r["success"])
+        times = [r["time_sec"] for r in results if r["success"]]
+
+        print(f"\n[reliability] {successes}/{runs} succeeded")
+        for r in results:
+            print(f"  run {r['run']}: {r}")
+        if times:
+            print(f"  avg={sum(times) / len(times):.1f}s  min={min(times):.1f}s  max={max(times):.1f}s")
+
+        # Only require that the feature doesn't crash every time.
+        self.assertGreaterEqual(successes, 1, f"All runs failed: {results}")
+
+    # -- Test F: stress test with 4K window (hierarchical merge) ---------------
+
+    def test_stress_4k_window(self) -> None:
+        """4K window forces ~15 chunks and hierarchical merging; must not crash."""
+        model = copy(OPENROUTER_CHEAP_MODEL)
+        model.context_window = 4096
+        model.max_tokens = 1024
+
+        agent = ContextReviewerAgent("en", "zh", chatbot_model=model, chunked_guideline=True)
+
+        t0 = time.monotonic()
+        guideline = agent.build_context(self.lines, title=self.title)
+        elapsed = time.monotonic() - t0
+
+        # Hard requirement: must produce *something* without crashing.
+        self.assertTrue(len(guideline) > 0, "Stress-test guideline is empty")
+
+        # Soft metrics: log for review.
+        has_sections = _has_all_sections(guideline)
+        g_recall, g_found, g_missed = _recall(guideline, EXPECTED_GLOSSARY_TERMS)
+        c_recall, c_found, c_missed = _recall(guideline, EXPECTED_CHARACTERS)
+        print(f"\n[stress-4k] time={elapsed:.1f}s  all_sections={has_sections}")
+        print(f"[stress-4k] glossary recall={g_recall:.2f}  found={g_found}  missed={g_missed}")
+        print(f"[stress-4k] character recall={c_recall:.2f}  found={c_found}  missed={c_missed}")
+        _print_guideline("chunked (4K window, ~15 chunks, hierarchical merge)", guideline)
