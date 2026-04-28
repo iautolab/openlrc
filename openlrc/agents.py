@@ -342,7 +342,7 @@ class ContextReviewerAgent(Agent):
         system_tokens = get_text_token_number(self.prompter.system())
         user_tokens = get_text_token_number(self.prompter.user(text_content, title=title, given_glossary=glossary))
         context_window = self.chatbot.model_info.context_window
-        available_output = int(context_window * 0.95) - system_tokens - user_tokens
+        available_output = int(context_window * 0.90) - system_tokens - user_tokens
 
         if available_output >= self.MIN_OUTPUT_TOKENS:
             try:
@@ -479,7 +479,7 @@ class ContextReviewerAgent(Agent):
         system_tokens = get_text_token_number(self.prompter.system())
         user_overhead = get_text_token_number(self.prompter.user("", title=title, given_glossary=glossary))
         context_window = self.chatbot.model_info.context_window
-        max_text_tokens = int(context_window * 0.95) - system_tokens - user_overhead - self.MIN_OUTPUT_TOKENS
+        max_text_tokens = int(context_window * 0.90) - system_tokens - user_overhead - self.MIN_OUTPUT_TOKENS
 
         if max_text_tokens < self.MIN_CHUNK_TEXT_TOKENS:
             logger.warning(
@@ -541,7 +541,7 @@ class ContextReviewerAgent(Agent):
         """
         merge_system_tokens = get_text_token_number(self.prompter.merge_system())
         context_window = self.chatbot.model_info.context_window
-        max_merge_input = int(context_window * 0.95) - merge_system_tokens - self.MIN_OUTPUT_TOKENS
+        max_merge_input = int(context_window * 0.90) - merge_system_tokens - self.MIN_OUTPUT_TOKENS
 
         user_content = self.prompter.merge_user(guidelines, title=title)
         user_tokens = get_text_token_number(user_content)

@@ -364,7 +364,10 @@ class LLMTranslator(Translator):
         self.api_fee += sum(chatbot.api_fees[-(len(texts)) :])
         translated = list(map(chatbot.get_content, responses))
 
-        assert len(translated) == len(texts), f"Atomic translation failed: {len(translated)} vs {len(texts)}"
+        if len(translated) != len(texts):
+            raise ChatBotException(
+                f"Atomic translation failed: expected {len(texts)} translations, got {len(translated)}"
+            )
 
         return translated
 

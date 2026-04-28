@@ -104,14 +104,14 @@ class ChatBot:
         """Dynamically compute max_tokens based on input size and model context window.
 
         Prevents context window overflow by capping output tokens to the remaining
-        space after input tokens, with a 5% safety margin for tokenizer estimation error.
+        space after input tokens, with a 10% safety margin for tokenizer estimation error.
         Returns at least 1024 to avoid overly truncated output.
         """
         input_tokens = get_messages_token_number(messages)
         context_window = self.model_info.context_window
         model_max = self.model_info.max_tokens
 
-        available = int(context_window * 0.95) - input_tokens
+        available = int(context_window * 0.90) - input_tokens
         computed = min(model_max, max(available, 1024))
 
         if computed < model_max:
@@ -334,6 +334,7 @@ class GPTBot(ChatBot):
         effective_top_p = top_p if top_p is not None else self.top_p
 
         response = None
+        validated = False
         for i in range(self.retry):
             try:
                 response = self.client.chat.completions.create(
@@ -355,6 +356,7 @@ class GPTBot(ChatBot):
                     logger.warning(f"Invalid response format. Retry num: {i + 1}.")
                     continue
 
+                validated = True
                 break
             except openai.AuthenticationError as e:
                 # Authentication errors are deterministic and should not be retried.
@@ -382,6 +384,9 @@ class GPTBot(ChatBot):
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
+
+        if not validated:
+            logger.warning("Response format validation failed after all retries, returning best-effort response.")
 
         return response
 
@@ -462,10 +467,12 @@ class ClaudeBot(ChatBot):
 
         # Move "system" role into the parameters
         system_msg = NOT_GIVEN
+        messages = list(messages)  # Shallow copy to avoid mutating the caller's list.
         if messages[0]["role"] == "system":
             system_msg = messages.pop(0)["content"]
 
         response = None
+        validated = False
         for i in range(self.retry):
             try:
                 response = self.client.messages.create(
@@ -488,6 +495,7 @@ class ClaudeBot(ChatBot):
                     logger.warning(f"Invalid response format. Retry num: {i + 1}.")
                     continue
 
+                validated = True
                 break
             except anthropic.AuthenticationError as e:
                 # Authentication errors are deterministic and should not be retried.
@@ -514,6 +522,9 @@ class ClaudeBot(ChatBot):
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
+
+        if not validated:
+            logger.warning("Response format validation failed after all retries, returning best-effort response.")
 
         return response
 
@@ -633,6 +644,7 @@ class GeminiBot(ChatBot):
         )
 
         response = None
+        validated = False
         for i in range(self.retry):
             # send_message_async is buggy, so we use send_message instead as a workaround
             response = self.client.models.generate_content(model=self.model_name, contents=user_msg, config=config)
@@ -652,10 +664,14 @@ class GeminiBot(ChatBot):
                 logger.warning(f"Failed to get a complete response. Retry num: {i + 1}.")
                 continue
 
+            validated = True
             break
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
+
+        if not validated:
+            logger.warning("Response format validation failed after all retries, returning best-effort response.")
 
         return response
 
