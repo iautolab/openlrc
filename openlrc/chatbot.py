@@ -17,6 +17,7 @@ from anthropic import Anthropic
 from anthropic._types import NOT_GIVEN
 from anthropic.types import Message
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from google.genai.types import HarmBlockThreshold, HarmCategory
 from openai import OpenAI
@@ -305,7 +306,9 @@ class GPTBot(ChatBot):
         raise ValueError("No API key found. Set OPENAI_API_KEY or pass api_key explicitly.")
 
     def update_fee(self, response: ChatCompletion):
-        assert response.usage is not None, "ChatCompletion.usage is None"
+        if response.usage is None:
+            logger.warning("ChatCompletion.usage is None, skipping fee update.")
+            return
         prompt_tokens = response.usage.prompt_tokens
         completion_tokens = response.usage.completion_tokens
 
@@ -438,6 +441,9 @@ class ClaudeBot(ChatBot):
     def update_fee(self, response: Message):
         model_info = self.model_info
 
+        if response.usage is None:
+            logger.warning("Message.usage is None, skipping fee update.")
+            return
         prompt_tokens = response.usage.input_tokens
         completion_tokens = response.usage.output_tokens
 
@@ -589,7 +595,9 @@ class GeminiBot(ChatBot):
 
     def update_fee(self, response: types.GenerateContentResponse):
         model_info = self.model_info
-        assert response.usage_metadata is not None, "GenerateContentResponse.usage_metadata is None"
+        if response.usage_metadata is None:
+            logger.warning("GenerateContentResponse.usage_metadata is None, skipping fee update.")
+            return
         prompt_tokens = response.usage_metadata.prompt_token_count or 0
         completion_tokens = response.usage_metadata.candidates_token_count or 0
 
@@ -646,26 +654,38 @@ class GeminiBot(ChatBot):
         response = None
         validated = False
         for i in range(self.retry):
-            # send_message_async is buggy, so we use send_message instead as a workaround
-            response = self.client.models.generate_content(model=self.model_name, contents=user_msg, config=config)
-            self.update_fee(response)
-            if not response.text:
-                logger.warning(f"Get None response. Wait 15s. Retry num: {i + 1}.")
-                time.sleep(15)
-                continue
+            try:
+                response = self.client.models.generate_content(model=self.model_name, contents=user_msg, config=config)
+                self.update_fee(response)
+                if not response.text:
+                    logger.warning(f"Get None response. Wait 15s. Retry num: {i + 1}.")
+                    time.sleep(15)
+                    continue
 
-            response_text = remove_stop(response.text, stop_sequences)
+                response_text = remove_stop(response.text, stop_sequences)
 
-            if not output_checker(user_msg, response_text):
-                logger.warning(f"Invalid response format. Retry num: {i + 1}.")
-                continue
+                if not output_checker(user_msg, response_text):
+                    logger.warning(f"Invalid response format. Retry num: {i + 1}.")
+                    continue
 
-            if not response:
-                logger.warning(f"Failed to get a complete response. Retry num: {i + 1}.")
-                continue
-
-            validated = True
-            break
+                validated = True
+                break
+            except genai_errors.ClientError as e:
+                if e.code == 429:
+                    # Rate limit is a client error (4xx) but is retryable.
+                    sleep_time = self._get_sleep_time(e)
+                    logger.warning(f"Rate limited: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
+                    time.sleep(sleep_time)
+                elif e.code in (401, 403):
+                    # Authentication/permission errors are deterministic.
+                    raise ChatBotException(f"Authentication failed: {e}") from e
+                else:
+                    # Other client errors (4xx) are deterministic; retrying will not help.
+                    raise ChatBotException(f"Client error: {e}") from e
+            except genai_errors.ServerError as e:
+                sleep_time = self._get_sleep_time(e)
+                logger.warning(f"ServerError: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
+                time.sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -674,6 +694,19 @@ class GeminiBot(ChatBot):
             logger.warning("Response format validation failed after all retries, returning best-effort response.")
 
         return response
+
+    @staticmethod
+    def _get_sleep_time(error):
+        if isinstance(error, genai_errors.APIError) and error.code == 429:  # Rate limit
+            return random.randint(30, 60)
+        elif isinstance(error, genai_errors.ServerError):
+            return 15
+        else:
+            return 5
+
+    def close(self):
+        """Close the Gemini client and release resources."""
+        self.client.close()
 
 
 provider2chatbot = {ModelProvider.OPENAI: GPTBot, ModelProvider.ANTHROPIC: ClaudeBot, ModelProvider.GOOGLE: GeminiBot}
