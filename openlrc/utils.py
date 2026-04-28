@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from spacy.language import Language as SpacyLanguage
 
-from openlrc.defaults import supported_languages_lingua
+from openlrc.defaults import PREPROCESSED_DIR, PREPROCESSED_SUFFIX, supported_languages_lingua
 from openlrc.logger import logger
 
 
@@ -71,7 +71,7 @@ def get_preprocessed_path(audio_path: str | Path) -> Path:
         PosixPath('/data/preprocessed/audio_preprocessed.wav')
     """
     audio_path = Path(audio_path)
-    return audio_path.parent / "preprocessed" / f"{audio_path.stem}_preprocessed.wav"
+    return audio_path.parent / PREPROCESSED_DIR / f"{audio_path.stem}{PREPROCESSED_SUFFIX}.wav"
 
 
 def get_file_type(path: Path) -> str:
