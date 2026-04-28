@@ -7,7 +7,7 @@ from pathlib import Path
 from ffmpeg_normalize import FFmpegNormalize
 from tqdm import tqdm
 
-from openlrc.defaults import default_preprocess_options
+from openlrc.defaults import LOUDNORM_SUFFIX, NOISE_SUPPRESSED_SUFFIX, PREPROCESSED_DIR, default_preprocess_options
 from openlrc.logger import logger
 from openlrc.utils import get_preprocessed_path, release_memory
 
@@ -40,7 +40,7 @@ class Preprocessor:
     def __init__(
         self,
         audio_paths: str | Path | list[str] | list[Path],
-        output_folder: str = "preprocessed",
+        output_folder: str = PREPROCESSED_DIR,
         options: dict | None = None,
     ):
         if options is None:
@@ -66,8 +66,7 @@ class Preprocessor:
             from df.enhance import enhance, init_df, load_audio, save_audio
         except ImportError:
             raise ImportError(
-                "Noise suppression requires torch and deepfilternet. "
-                "Install them with: pip install 'openlrc[full]'"
+                "Noise suppression requires torch and deepfilternet. Install them with: pip install 'openlrc[full]'"
             )
 
         if "atten_lim_db" in self.options:
@@ -79,7 +78,7 @@ class Preprocessor:
         ns_audio_paths = []
         for audio_path, output_path in zip(audio_paths, self.output_paths):
             audio_name = audio_path.stem
-            ns_path = output_path / f"{audio_name}_ns.wav"
+            ns_path = output_path / f"{audio_name}{NOISE_SUPPRESSED_SUFFIX}.wav"
 
             if not ns_path.exists():
                 audio, info = load_audio(audio_path, sr=df_state.sr())
@@ -117,7 +116,7 @@ class Preprocessor:
         args = []
         ln_audio_paths = []
         for audio_path, output_path in zip(audio_paths, self.output_paths):
-            ln_path = output_path / f"{audio_path.stem}_ln.wav"
+            ln_path = output_path / f"{audio_path.stem}{LOUDNORM_SUFFIX}.wav"
             args.append((audio_path, ln_path))
             ln_audio_paths.append(ln_path)
 
