@@ -166,6 +166,11 @@ class LRCer:
         self._transcriber = None
         self.transcribed_paths = []
 
+        # Lazy initialization: ChatBot instances are created on first access via properties.
+        self._chatbot_lock = Lock()
+        self._chatbot = None
+        self._retry_chatbot = None
+
     @property
     def transcriber(self):
         """Lazily initialize and return the Transcriber instance (thread-safe)."""
@@ -182,6 +187,51 @@ class LRCer:
                         vad_options=self.vad_options,
                     )
         return self._transcriber
+
+    @property
+    def chatbot(self):
+        """Lazily initialize and return the primary ChatBot instance (thread-safe)."""
+        if self._chatbot is None:
+            from openlrc.agents import create_chatbot
+
+            with self._chatbot_lock:
+                if self._chatbot is None:
+                    self._chatbot = create_chatbot(self.chatbot_model, self.fee_limit, self.proxy, self.base_url_config)
+        return self._chatbot
+
+    @property
+    def retry_chatbot(self):
+        """Lazily initialize and return the retry ChatBot instance (thread-safe).
+
+        Returns None if no retry_model is configured.
+        """
+        if self._retry_chatbot is None and self.retry_model:
+            from openlrc.agents import create_chatbot
+
+            with self._chatbot_lock:
+                if self._retry_chatbot is None:
+                    self._retry_chatbot = create_chatbot(
+                        self.retry_model, self.fee_limit, self.proxy, self.base_url_config
+                    )
+        return self._retry_chatbot
+
+    def close(self):
+        """Close ChatBot connections and release resources.
+
+        Safe to call multiple times or before any ChatBot has been created.
+        """
+        if self._chatbot is not None:
+            self._chatbot.close()
+            self._chatbot = None
+        if self._retry_chatbot is not None:
+            self._retry_chatbot.close()
+            self._retry_chatbot = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
 
     @staticmethod
     def parse_glossary(glossary: dict | str | Path | None) -> dict | None:
@@ -526,28 +576,18 @@ class LRCer:
         json_filename = Path(translated_path.parent / (audio_name + ".json"))
         compare_path = Path(translated_path.parent, f"{audio_name}_compare.json")
         if not translated_path.exists():
-            from contextlib import ExitStack
+            translator = LLMTranslator(chatbot=self.chatbot, retry_chatbot=self.retry_chatbot)
 
-            from openlrc.agents import create_chatbot
+            target_texts = translator.translate(
+                transcribed_opt_sub.texts,
+                src_lang=transcribed_opt_sub.lang,
+                target_lang=target_lang,
+                info=context,
+                compare_path=compare_path,
+            )
 
-            def _open_bot(model):
-                return stack.enter_context(create_chatbot(model, self.fee_limit, self.proxy, self.base_url_config))
-
-            with ExitStack() as stack:
-                chatbot = _open_bot(self.chatbot_model)
-                retry_bot = _open_bot(self.retry_model) if self.retry_model else None
-                translator = LLMTranslator(chatbot=chatbot, retry_chatbot=retry_bot)
-
-                target_texts = translator.translate(
-                    transcribed_opt_sub.texts,
-                    src_lang=transcribed_opt_sub.lang,
-                    target_lang=target_lang,
-                    info=context,
-                    compare_path=compare_path,
-                )
-
-                with self._lock:
-                    self.api_fee += translator.api_fee  # Ensure thread-safe
+            with self._lock:
+                self.api_fee += translator.api_fee  # Ensure thread-safe
 
             translated_sub = deepcopy(transcribed_opt_sub)
             translated_sub.set_texts(target_texts, lang=target_lang)

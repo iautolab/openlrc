@@ -62,6 +62,7 @@ into `.lrc` subtitles with LLMs such as
     ```python
 
     from openlrc import ModelConfig, ModelProvider
+    from openlrc.agents import create_chatbot
     from openlrc.translate import LLMTranslator
 
     chatbot_model1 = ModelConfig(
@@ -75,7 +76,9 @@ into `.lrc` subtitles with LLMs such as
         name='gpt-4o-mini', 
         api_key='sk-APIKEY'
     )
-    translator = LLMTranslator(chatbot_model=chatbot_model1, retry_model=chatbot_model2)
+    chatbot = create_chatbot(chatbot_model1)
+    retry_chatbot = create_chatbot(chatbot_model2)
+    translator = LLMTranslator(chatbot=chatbot, retry_chatbot=retry_chatbot)
     ```
 
 ## Installation ⚙️
@@ -229,6 +232,18 @@ if __name__ == '__main__':
     # Bilingual subtitle
     lrcer.run('./data/test.mp3', target_lang='zh-cn', bilingual_sub=True)
 ```
+
+`LRCer` supports the context manager protocol, which automatically closes
+the underlying LLM connections when the block exits:
+
+```python
+with LRCer() as lrcer:
+    lrcer.run(['./data/file1.mp3', './data/file2.mp3'], target_lang='zh-cn')
+# Connections are closed automatically here.
+```
+
+This is recommended when processing multiple files, as the LLM connection
+pool is shared across all files within the same `LRCer` instance.
 
 Check more details in [Documentation](https://zh-plus.github.io/openlrc/#/).
 
