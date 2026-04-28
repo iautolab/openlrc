@@ -6,6 +6,7 @@ from pathlib import Path
 
 import zhconv
 
+from openlrc.defaults import OPTIMIZED_SUFFIX
 from openlrc.logger import logger
 from openlrc.subtitle import BilingualSubtitle, Subtitle
 from openlrc.utils import extend_filename, format_timestamp
@@ -272,7 +273,7 @@ class SubtitleOptimizer:
         """
         Save the optimized subtitle to a file.
         """
-        optimized_name = extend_filename(self.filename, "_optimized") if not output_name else output_name
+        optimized_name = extend_filename(self.filename, OPTIMIZED_SUFFIX) if not output_name else output_name
         self.subtitle.save(optimized_name, update_name=update_name)
         logger.info(f"Optimized json file saved to {optimized_name}")
 

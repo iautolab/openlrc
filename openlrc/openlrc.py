@@ -19,7 +19,17 @@ if TYPE_CHECKING:
     from faster_whisper.transcribe import Segment
 
 from openlrc.config import TranscriptionConfig, TranslationConfig
-from openlrc.defaults import default_asr_options, default_preprocess_options, default_vad_options
+from openlrc.defaults import (
+    COMPARE_SUFFIX,
+    NONTRANS_SUFFIX,
+    PREPROCESSED_DIR,
+    PREPROCESSED_SUFFIX,
+    TRANSCRIBED_SUFFIX,
+    TRANSLATED_SUFFIX,
+    default_asr_options,
+    default_preprocess_options,
+    default_vad_options,
+)
 from openlrc.logger import logger
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import BilingualSubtitle, Subtitle
@@ -264,7 +274,7 @@ class LRCer:
         Returns:
             Path: Path to the transcribed JSON file.
         """
-        transcribed_path = extend_filename(audio_path, "_transcribed").with_suffix(".json")
+        transcribed_path = extend_filename(audio_path, TRANSCRIBED_SUFFIX).with_suffix(".json")
         if not transcribed_path.exists():
             with Timer("Transcription process"):
                 logger.info(
@@ -347,7 +357,7 @@ class LRCer:
     @staticmethod
     def _get_base_name(transcribed_path: Path) -> str:
         """Extract the original audio base name from a transcribed JSON path."""
-        return transcribed_path.stem.replace("_preprocessed_transcribed", "")
+        return transcribed_path.stem.replace(f"{PREPROCESSED_SUFFIX}{TRANSCRIBED_SUFFIX}", "")
 
     def _is_video_transcription(self, transcribed_path: Path, base_name: str) -> bool:
         """
@@ -380,7 +390,7 @@ class LRCer:
         Returns:
             Subtitle: The final subtitle (translated or copied), or None on error.
         """
-        translated_path = extend_filename(transcribed_opt_sub.filename, "_translated")
+        translated_path = extend_filename(transcribed_opt_sub.filename, TRANSLATED_SUFFIX)
         final_json_path = translated_path.with_name(f"{base_name}.json")
 
         if final_json_path.exists():
@@ -433,7 +443,9 @@ class LRCer:
         optimizer = SubtitleOptimizer(non_translated_subtitle)
         optimizer.extend_time()
         non_translated_path = getattr(non_translated_subtitle, f"to_{subtitle_format}")()
-        shutil.move(non_translated_path, non_translated_path.parent.parent / f"{base_name}_nontrans.{subtitle_format}")
+        shutil.move(
+            non_translated_path, non_translated_path.parent.parent / f"{base_name}{NONTRANS_SUFFIX}.{subtitle_format}"
+        )
 
     def _process_transcribed_file(
         self, transcribed_path: Path, target_lang: str | None, skip_trans: bool = False, bilingual_sub: bool = False
@@ -574,7 +586,7 @@ class LRCer:
         )
 
         json_filename = Path(translated_path.parent / (audio_name + ".json"))
-        compare_path = Path(translated_path.parent, f"{audio_name}_compare.json")
+        compare_path = Path(translated_path.parent, f"{audio_name}{COMPARE_SUFFIX}.json")
         if not translated_path.exists():
             translator = LLMTranslator(chatbot=self.chatbot, retry_chatbot=self.retry_chatbot)
 
@@ -740,7 +752,7 @@ class LRCer:
         """
         temp_folders = {path.parent for path in paths}
         for folder in temp_folders:
-            assert folder.name == "preprocessed", f"Not a temporary folder: {folder}"
+            assert folder.name == PREPROCESSED_DIR, f"Not a temporary folder: {folder}"
 
             shutil.rmtree(folder)
             logger.debug(f"Removed {folder}")

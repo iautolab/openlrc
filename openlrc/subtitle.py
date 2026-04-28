@@ -8,6 +8,13 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from openlrc.defaults import (
+    BILINGUAL_SUFFIX,
+    OPTIMIZED_SUFFIX,
+    PREPROCESSED_SUFFIX,
+    TRANSCRIBED_SUFFIX,
+    TRANSLATED_SUFFIX,
+)
 from openlrc.logger import logger
 from openlrc.utils import detect_lang, format_timestamp, parse_timestamp
 
@@ -285,8 +292,9 @@ class BilingualSubtitle:
 
     @classmethod
     def from_preprocessed(cls, preprocessed_folder, audio_name):
-        src_file = preprocessed_folder / f"{audio_name}_preprocessed_transcribed_optimized.json"
-        target_file = preprocessed_folder / f"{audio_name}_preprocessed_transcribed_optimized_translated.json"
+        _opt = f"{audio_name}{PREPROCESSED_SUFFIX}{TRANSCRIBED_SUFFIX}{OPTIMIZED_SUFFIX}"
+        src_file = preprocessed_folder / f"{_opt}.json"
+        target_file = preprocessed_folder / f"{_opt}{TRANSLATED_SUFFIX}.json"
 
         if not src_file.exists() or not target_file.exists():
             raise ValueError(f"Preprocessed file not found for {audio_name}")
@@ -294,7 +302,7 @@ class BilingualSubtitle:
         src_sub = Subtitle.from_json(src_file)
         target_sub = Subtitle.from_json(target_file)
 
-        bilingual_sub_name = preprocessed_folder / f"{audio_name}_bilingual.json"
+        bilingual_sub_name = preprocessed_folder / f"{audio_name}{BILINGUAL_SUFFIX}.json"
 
         return cls(src_sub, target_sub, filename=bilingual_sub_name)
 
