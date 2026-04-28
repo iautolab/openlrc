@@ -190,14 +190,14 @@ class TestChatBot(unittest.TestCase):
         """message(temperature=X) should override the instance default set in __init__."""
         bot = GPTBot(model_name="gpt-4.1-nano", temperature=1.0, api_key="test-key")
 
-        # Mock the async completion call to capture the temperature it receives.
+        # Mock the sync completion call to capture the temperature it receives.
         captured: list[float | None] = []
 
-        async def fake_create(**kwargs: object) -> None:
+        def fake_create(**kwargs: object) -> None:
             captured.append(kwargs.get("temperature"))  # type: ignore[arg-type]
             raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
 
-        with patch.object(bot.async_client.chat.completions, "create", side_effect=fake_create):
+        with patch.object(bot.client.chat.completions, "create", side_effect=fake_create):
             try:
                 bot.message([{"role": "user", "content": "hi"}], temperature=0.3)
             except Exception:
@@ -212,11 +212,11 @@ class TestChatBot(unittest.TestCase):
 
         captured: list[float | None] = []
 
-        async def fake_create(**kwargs: object) -> None:
+        def fake_create(**kwargs: object) -> None:
             captured.append(kwargs.get("temperature"))  # type: ignore[arg-type]
             raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
 
-        with patch.object(bot.async_client.chat.completions, "create", side_effect=fake_create):
+        with patch.object(bot.client.chat.completions, "create", side_effect=fake_create):
             try:
                 bot.message([{"role": "user", "content": "hi"}])
             except Exception:

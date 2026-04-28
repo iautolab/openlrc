@@ -1,24 +1,25 @@
 #  Copyright (C) 2026. Hao Zheng
 #  All rights reserved.
 
-import asyncio
 import json
 import os
 import random
 import re
+import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 import anthropic
 import httpx
 import openai
-from anthropic import AsyncAnthropic
+from anthropic import Anthropic
 from anthropic._types import NOT_GIVEN
 from anthropic.types import Message
 from google import genai
 from google.genai import types
 from google.genai.types import HarmBlockThreshold, HarmCategory
-from openai import AsyncClient as AsyncGPTClient
+from openai import OpenAI
 from openai.types.chat import ChatCompletion
 
 from openlrc.exceptions import ChatBotException, LengthExceedException
@@ -142,7 +143,7 @@ class ChatBot:
     def get_content(self, response):
         raise NotImplementedError()
 
-    async def _create_achat(
+    def _create_chat(
         self,
         messages: list[dict],
         stop_sequences: list[str] | None = None,
@@ -151,33 +152,6 @@ class ChatBot:
         top_p: float | None = None,
     ):
         raise NotImplementedError()
-
-    async def _amessage(
-        self,
-        messages_list: list[list[dict]],
-        stop_sequences: list[str] | None = None,
-        output_checker: Callable = lambda user_input, generated_content: True,
-        temperature: float | None = None,
-        top_p: float | None = None,
-    ):
-        """
-        Async send messages to the GPT chatbot.
-        """
-
-        results = await asyncio.gather(
-            *(
-                self._create_achat(
-                    message,
-                    stop_sequences=stop_sequences,
-                    output_checker=output_checker,
-                    temperature=temperature,
-                    top_p=top_p,
-                )
-                for message in messages_list
-            )
-        )
-
-        return results
 
     def message(
         self,
@@ -220,15 +194,19 @@ class ChatBot:
             raise ChatBotException(f"Approximated billing fee {approximated_fee} exceeds the limit: {self.fee_limit}$.")
 
         try:
-            results = asyncio.run(
-                self._amessage(
-                    normalised,
-                    stop_sequences=stop_sequences,
-                    output_checker=output_checker,
-                    temperature=temperature,
-                    top_p=top_p,
-                )
-            )
+            with ThreadPoolExecutor(max_workers=min(len(normalised), self.max_async)) as pool:
+                futures = [
+                    pool.submit(
+                        self._create_chat,
+                        message,
+                        stop_sequences=stop_sequences,
+                        output_checker=output_checker,
+                        temperature=temperature,
+                        top_p=top_p,
+                    )
+                    for message in normalised
+                ]
+                results = [f.result() for f in futures]
         except ChatBotException as e:
             logger.error(f"Failed to message with GPT. Error: {e}")
             raise
@@ -284,8 +262,8 @@ class GPTBot(ChatBot):
             api_key=api_key, base_url_config=base_url_config
         )
 
-        self.async_client = AsyncGPTClient(
-            api_key=resolved_api_key, http_client=httpx.AsyncClient(proxy=proxy), base_url=resolved_base_url
+        self.client = OpenAI(
+            api_key=resolved_api_key, http_client=httpx.Client(proxy=proxy), base_url=resolved_base_url
         )
 
         self.model_name = model_name
@@ -338,7 +316,7 @@ class GPTBot(ChatBot):
     def get_content(self, response):
         return response.choices[0].message.content
 
-    async def _create_achat(
+    def _create_chat(
         self,
         messages: list[dict],
         stop_sequences: list[str] | None = None,
@@ -358,7 +336,7 @@ class GPTBot(ChatBot):
         response = None
         for i in range(self.retry):
             try:
-                response = await self.async_client.chat.completions.create(
+                response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,  # pyright: ignore[reportArgumentType]
                     temperature=effective_temperature,
@@ -400,7 +378,7 @@ class GPTBot(ChatBot):
             ) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                await asyncio.sleep(sleep_time)
+                time.sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -419,12 +397,8 @@ class GPTBot(ChatBot):
             return 15
 
     def close(self):
-        """Close the async OpenAI client and its underlying HTTP connection pool."""
-        try:
-            asyncio.run(self.async_client.close())
-        except RuntimeError:
-            # Event loop already running or closed; best-effort cleanup.
-            pass
+        """Close the OpenAI client and its underlying HTTP connection pool."""
+        self.client.close()
 
 
 @_register_chatbot
@@ -447,9 +421,9 @@ class ClaudeBot(ChatBot):
 
         super().__init__(model_name, temperature, top_p, retry, max_async, fee_limit)
 
-        self.async_client = AsyncAnthropic(
+        self.client = Anthropic(
             api_key=api_key or os.environ["ANTHROPIC_API_KEY"],
-            http_client=httpx.AsyncClient(proxy=proxy),
+            http_client=httpx.Client(proxy=proxy),
             base_url=base_url_config["anthropic"] if base_url_config and base_url_config["anthropic"] else None,
         )
 
@@ -469,7 +443,7 @@ class ClaudeBot(ChatBot):
     def get_content(self, response):
         return response.content[0].text
 
-    async def _create_achat(
+    def _create_chat(
         self,
         messages: list[dict],
         stop_sequences: list[str] | None = None,
@@ -494,7 +468,7 @@ class ClaudeBot(ChatBot):
         response = None
         for i in range(self.retry):
             try:
-                response = await self.async_client.messages.create(
+                response = self.client.messages.create(
                     model=self.model_name,
                     messages=messages,  # pyright: ignore[reportArgumentType]
                     system=system_msg,
@@ -536,7 +510,7 @@ class ClaudeBot(ChatBot):
             ) as e:
                 sleep_time = self._get_sleep_time(e)
                 logger.warning(f"{type(e).__name__}: {e}. Wait {sleep_time}s before retry. Retry num: {i + 1}.")
-                await asyncio.sleep(sleep_time)
+                time.sleep(sleep_time)
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
@@ -552,11 +526,8 @@ class ClaudeBot(ChatBot):
             return 15
 
     def close(self):
-        """Close the async Anthropic client and its underlying HTTP connection pool."""
-        try:
-            asyncio.run(self.async_client.close())
-        except RuntimeError:
-            pass
+        """Close the Anthropic client and its underlying HTTP connection pool."""
+        self.client.close()
 
 
 @_register_chatbot
@@ -618,7 +589,7 @@ class GeminiBot(ChatBot):
     def get_content(self, response):
         return response.text
 
-    async def _create_achat(
+    def _create_chat(
         self,
         messages: list[dict],
         stop_sequences: list[str] | None = None,
@@ -663,16 +634,12 @@ class GeminiBot(ChatBot):
 
         response = None
         for i in range(self.retry):
-            # try:
             # send_message_async is buggy, so we use send_message instead as a workaround
-            # response = client.send_message(user_msg, safety_settings=self.safety_settings)
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name, contents=user_msg, config=config
-            )
+            response = self.client.models.generate_content(model=self.model_name, contents=user_msg, config=config)
             self.update_fee(response)
             if not response.text:
                 logger.warning(f"Get None response. Wait 15s. Retry num: {i + 1}.")
-                await asyncio.sleep(15)
+                time.sleep(15)
                 continue
 
             response_text = remove_stop(response.text, stop_sequences)
@@ -686,11 +653,6 @@ class GeminiBot(ChatBot):
                 continue
 
             break
-            # except Exception as e:
-            #     logger.warning(f'{type(e).__name__}: {e}. Retry num: {i + 1}.')
-            #     time.sleep(3)
-            # except genai.types.generation_types.BlockedPromptException as e:
-            #     logger.warning(f'Prompt blocked: {e}.\n Retry in 30s.')
 
         if not response:
             raise ChatBotException("Failed to create a chat.")
