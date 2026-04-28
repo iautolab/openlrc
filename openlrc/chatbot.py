@@ -116,7 +116,7 @@ class ChatBot:
         computed = min(model_max, max(available, 1024))
 
         if computed < model_max:
-            logger.info(
+            logger.debug(
                 f"Dynamic max_tokens: {computed} "
                 f"(input={input_tokens}, context_window={context_window}, model_max={model_max})"
             )
@@ -183,13 +183,13 @@ class ChatBot:
 
         # Calculate the total sending token number and approximated billing fee.
         token_numbers = [get_messages_token_number(message) for message in normalised]
-        logger.info(
+        logger.debug(
             f"Max token num: {max(token_numbers):.0f}, Avg token num: {sum(token_numbers) / len(token_numbers):.0f}"
         )
 
         # if the approximated billing fee exceeds the limit, raise an exception.
         approximated_fee = sum([self.estimate_fee(messages) for messages in normalised])
-        logger.info(f"Approximated billing fee: {approximated_fee:.4f} USD")
+        logger.debug(f"Approximated billing fee: {approximated_fee:.4f} USD")
         self.api_fees += [0]  # Actual fee for this translation call.
         if approximated_fee > self.fee_limit:
             raise ChatBotException(f"Approximated billing fee {approximated_fee} exceeds the limit: {self.fee_limit}$.")
@@ -212,8 +212,8 @@ class ChatBot:
             logger.error(f"Failed to message with GPT. Error: {e}")
             raise
         finally:
-            logger.info(f"Translation fee for this call: {self.api_fees[-1]:.4f} USD")
-            logger.info(f"Total bot translation fee: {sum(self.api_fees):.4f} USD")
+            logger.debug(f"Translation fee for this call: {self.api_fees[-1]:.4f} USD")
+            logger.debug(f"Total bot translation fee: {sum(self.api_fees):.4f} USD")
 
         return results
 
