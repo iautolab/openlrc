@@ -72,6 +72,10 @@ class ChunkedTranslateValidator(BaseValidator):
         return True
 
     def validate(self, user_input, generated_content):
+        if not generated_content:
+            logger.warning("Empty or None response content.")
+            return False
+
         summary = re.search(r"<summary>(.*)</summary>", generated_content)
         scene = re.search(r"<scene>(.*)</scene>", generated_content)
 
@@ -111,6 +115,10 @@ class AtomicTranslateValidator(BaseValidator):
         self.target_lang = target_lang
 
     def validate(self, user_input, generated_content):
+        if not generated_content:
+            logger.warning("Empty or None response content.")
+            return False
+
         detected_lang = self.lan_detector.detect_language_of(generated_content)
         if not detected_lang:
             return True
@@ -126,6 +134,10 @@ class AtomicTranslateValidator(BaseValidator):
 
 class ProofreaderValidator(BaseValidator):
     def validate(self, user_input, generated_content):
+        if not generated_content:
+            logger.warning("Empty or None response content.")
+            return False
+
         original = re.findall(ORIGINAL_PREFIX + r"\n(.*?)\n" + TRANSLATION_PREFIX, user_input, re.DOTALL)
         if not original:
             logger.error("Fail to extract original text.")
@@ -161,6 +173,10 @@ class ContextReviewerValidateValidator(BaseValidator):
         Returns:
             bool: True if validation passes, False otherwise.
         """
+        if not generated_content:
+            logger.warning("Empty or None response content.")
+            return False
+
         if re.search(r"\b(?:true|false)\b", generated_content, re.IGNORECASE):
             return True
         else:
