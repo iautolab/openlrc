@@ -52,24 +52,33 @@ class TestLLMTranslator(unittest.TestCase):
     def test_single_chunk_translation(self):
         for chatbot_model in test_models:
             text = "Hello, how are you?"
-            translator = LLMTranslator(chatbot_model)
-            translation = translator.translate(text, "en", "es")[0]
+            chatbot = create_chatbot(chatbot_model)
+            try:
+                translator = LLMTranslator(chatbot=chatbot)
+                translation = translator.translate(text, "en", "es")[0]
+            finally:
+                chatbot.close()
 
             self.assertGreater(get_similarity(translation, "Hola, ¿cómo estás?"), 0.5)
 
     def test_multiple_chunk_translation(self):
         for chatbot_model in test_models:
             texts = ["Hello, how are you?", "I am fine, thank you."]
-            translator = LLMTranslator(chatbot_model)
-            translations = translator.translate(texts, "en", "es")
+            chatbot = create_chatbot(chatbot_model)
+            try:
+                translator = LLMTranslator(chatbot=chatbot)
+                translations = translator.translate(texts, "en", "es")
+            finally:
+                chatbot.close()
             self.assertGreater(get_similarity(translations[0], "Hola, ¿cómo estás?"), 0.5)
             self.assertGreater(get_similarity(translations[1], "Estoy bien, gracias."), 0.5)
 
     def test_different_language_translation(self):
         for chatbot_model in test_models:
             text = "Hello, how are you?"
-            translator = LLMTranslator(chatbot_model)
+            chatbot = create_chatbot(chatbot_model)
             try:
+                translator = LLMTranslator(chatbot=chatbot)
                 translation = translator.translate(text, "en", "ja")[0]
                 self.assertTrue(
                     get_similarity(translation, "こんにちは、お元気ですか？") > 0.5
@@ -79,20 +88,26 @@ class TestLLMTranslator(unittest.TestCase):
                 pass
             except AssertionError:
                 print(f"Translation failed: {text} -> {translation}")
+            finally:
+                chatbot.close()
 
     def test_empty_text_list_translation(self):
         for chatbot_model in test_models:
             texts = []
-            translator = LLMTranslator(chatbot_model)
-            translations = translator.translate(texts, "en", "es")
+            chatbot = create_chatbot(chatbot_model)
+            try:
+                translator = LLMTranslator(chatbot=chatbot)
+                translations = translator.translate(texts, "en", "es")
+            finally:
+                chatbot.close()
             self.assertEqual(translations, [])
 
     def test_atomic_translate(self):
         for chatbot_model in test_models:
             texts = ["Hello, how are you?", "I am fine, thank you."]
-            translator = LLMTranslator(chatbot_model)
             chatbot = create_chatbot(chatbot_model)
             try:
+                translator = LLMTranslator(chatbot=chatbot)
                 translations = translator.atomic_translate(chatbot, texts, "en", "zh")
             finally:
                 chatbot.close()

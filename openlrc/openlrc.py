@@ -526,25 +526,28 @@ class LRCer:
         json_filename = Path(translated_path.parent / (audio_name + ".json"))
         compare_path = Path(translated_path.parent, f"{audio_name}_compare.json")
         if not translated_path.exists():
-            # Translate the transcribed json
-            translator = LLMTranslator(
-                chatbot_model=self.chatbot_model,
-                fee_limit=self.fee_limit,
-                proxy=self.proxy,
-                base_url_config=self.base_url_config,
-                retry_model=self.retry_model,
-            )
+            from contextlib import ExitStack
 
-            target_texts = translator.translate(
-                transcribed_opt_sub.texts,
-                src_lang=transcribed_opt_sub.lang,
-                target_lang=target_lang,
-                info=context,
-                compare_path=compare_path,
-            )
+            from openlrc.agents import create_chatbot
 
-            with self._lock:
-                self.api_fee += translator.api_fee  # Ensure thread-safe
+            def _open_bot(model):
+                return stack.enter_context(create_chatbot(model, self.fee_limit, self.proxy, self.base_url_config))
+
+            with ExitStack() as stack:
+                chatbot = _open_bot(self.chatbot_model)
+                retry_bot = _open_bot(self.retry_model) if self.retry_model else None
+                translator = LLMTranslator(chatbot=chatbot, retry_chatbot=retry_bot)
+
+                target_texts = translator.translate(
+                    transcribed_opt_sub.texts,
+                    src_lang=transcribed_opt_sub.lang,
+                    target_lang=target_lang,
+                    info=context,
+                    compare_path=compare_path,
+                )
+
+                with self._lock:
+                    self.api_fee += translator.api_fee  # Ensure thread-safe
 
             translated_sub = deepcopy(transcribed_opt_sub)
             translated_sub.set_texts(target_texts, lang=target_lang)
