@@ -445,7 +445,7 @@ class ContextReviewerAgent(Agent):
                     f"Finally failed to validate the context: {context}, you may check the context manually."
                 )
                 context = max(context_pool, key=len) if context_pool else ""
-                logger.info(f"Now using the longest context: {context}")
+                logger.debug(f"Now using the longest context: {context}")
 
         if not context:
             context = ""
