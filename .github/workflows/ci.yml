@@ -28,6 +28,7 @@ jobs:
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       OPENLRC_TEST_LIVE_API: "1"
+      OPENLRC_LOG_LEVEL: "DEBUG"
     steps:
       - uses: actions/checkout@v4
 

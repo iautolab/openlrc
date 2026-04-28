@@ -2,6 +2,7 @@
 #  All rights reserved.
 
 import logging
+import os
 
 from colorlog import ColoredFormatter
 
@@ -22,4 +23,4 @@ logger.handlers.clear()  # Clear existing handlers
 logger.addHandler(handler)
 logger.propagate = False
 
-logger.setLevel("INFO")
+logger.setLevel(os.environ.get("OPENLRC_LOG_LEVEL", "INFO").upper())

@@ -213,7 +213,7 @@ class LLMTranslator(Translator):
             guideline = context_reviewer.build_context(
                 texts, title=info.title or "", glossary=info.glossary, forced_glossary=info.forced_glossary
             )
-            logger.info(f"Translation Guideline:\n{guideline}")
+            logger.debug(f"Translation Guideline:\n{guideline}")
 
         context = TranslationContext(guideline=guideline, previous_summaries=summaries)
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
@@ -236,14 +236,16 @@ class LLMTranslator(Translator):
             translations.extend(translated)
             summaries.append(context.summary or "")
             logger.info(f"Translated {info.title}: {i}/{len(chunks)}")
-            logger.info(f"Summary: {context.summary}")
-            logger.info(f"Scene: {context.scene}")
+            logger.debug(f"Summary: {context.summary}")
+            logger.debug(f"Scene: {context.scene}")
 
             compare_list.extend(self._generate_compare_list(chunk, translated, i, atomic, context))
             self._save_intermediate_results(compare_path, compare_list, summaries, context.scene or "", guideline)
             context.previous_summaries = summaries
 
         self.api_fee += translator_agent.cost + (retry_agent.cost if retry_agent else 0)
+
+        logger.info(f"Translation complete for {info.title}. Fee: {self.api_fee:.4f} USD")
 
         return translations
 
