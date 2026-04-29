@@ -32,6 +32,7 @@ class LLMTranslator(Translator):
     """
 
     CHUNK_SIZE = 30
+    RETRY_STREAK = 10  # Number of consecutive chunks to use retry model after a failure
 
     def __init__(
         self,
@@ -86,6 +87,11 @@ class LLMTranslator(Translator):
 
         return chunks
 
+    @staticmethod
+    def _is_valid_translation(translated: list[str] | None, expected_len: int) -> bool:
+        """Check whether a translation result is usable (non-empty and correct line count)."""
+        return translated is not None and len(translated) == expected_len
+
     def _translate_chunk(
         self,
         translator_agent: ChunkedTranslatorAgent,
@@ -97,55 +103,64 @@ class LLMTranslator(Translator):
         """
         Translate a single chunk of text, with retry mechanism.
 
-        This method attempts to translate the chunk using the primary translator agent.
-        If the translation fails or is inconsistent, it may use a retry agent or remove the glossary.
+        Tries the primary agent first, then optionally falls back to a retry agent.
+        Each agent attempt includes a glossary-removal retry when the line count
+        is inconsistent.
 
-        Args:
-            translator_agent (ChunkedTranslatorAgent): Primary agent for translation.
-            chunk (List[Tuple[int, str]]): Chunk of text to translate.
-            context (TranslationContext): Current translation context.
-            chunk_id (int): ID of the current chunk.
-            retry_agent (Optional[ChunkedTranslatorAgent]): Agent for retry attempts.
-
-        Returns:
-            Tuple[List[str], TranslationContext]: Translated texts and updated context.
+        Returns the best available result. The caller should check whether
+        ``len(translated) == len(chunk)`` to decide if further fallback
+        (e.g. split or atomic translation) is needed.
         """
+        expected = len(chunk)
 
-        def handle_translation(agent: ChunkedTranslatorAgent) -> tuple[list[str] | None, TranslationContext | None]:
+        def _try_agent(agent: ChunkedTranslatorAgent) -> tuple[list[str] | None, TranslationContext | None]:
+            """Single agent attempt: translate, then retry without glossary if line count mismatches."""
             trans: list[str] | None = None
-            updated_context: TranslationContext | None = None
+            ctx: TranslationContext | None = None
             try:
-                trans, updated_context = agent.translate_chunk(chunk_id, chunk, context)
+                trans, ctx = agent.translate_chunk(chunk_id, chunk, context)
             except ChatBotException:
                 logger.error(f"Failed to translate chunk {chunk_id}.")
+                return None, None
 
-            if trans is not None and len(trans) != len(chunk) and agent.info.glossary:
+            if self._is_valid_translation(trans, expected):
+                return trans, ctx
+
+            # Line count mismatch — retry without glossary if applicable.
+            if trans is not None and agent.info.glossary:
                 logger.warning(
                     f"Agent {agent}: Removing glossary for chunk {chunk_id} due to inconsistent translation."
                 )
                 try:
-                    trans, updated_context = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+                    trans, ctx = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
                 except ChatBotException:
                     logger.error(f"Failed to translate chunk {chunk_id}.")
 
-            return trans, updated_context
+            return trans, ctx
 
-        translated: list[str] | None
-        updated_ctx: TranslationContext | None
+        translated: list[str] | None = None
+        updated_ctx: TranslationContext | None = None
 
+        # Step 1: Try primary or retry agent based on retry streak.
         if self.use_retry_cnt == 0 or not retry_agent:
-            translated, updated_ctx = handle_translation(translator_agent)
-
-            if retry_agent and (translated is None or len(translated) != len(chunk)):
-                self.use_retry_cnt = 10  # Use retry_agent for the next 10 chunks
-                logger.warning(
-                    f"Using retry agent {retry_agent} for chunk {chunk_id}, and next {self.use_retry_cnt} chunks."
-                )
-                translated, updated_ctx = handle_translation(retry_agent)
+            translated, updated_ctx = _try_agent(translator_agent)
         else:
             logger.info(f"Using retry agent for chunk {chunk_id}, remaining retries: {self.use_retry_cnt}")
-            translated, updated_ctx = handle_translation(retry_agent)
+            translated, updated_ctx = _try_agent(retry_agent)
             self.use_retry_cnt -= 1
+
+        # Step 2: If primary failed and retry agent is available, switch to it.
+        if not self._is_valid_translation(translated, expected) and retry_agent and self.use_retry_cnt == 0:
+            self.use_retry_cnt = self.RETRY_STREAK
+            logger.warning(
+                f"Using retry agent {retry_agent} for chunk {chunk_id}, and next {self.use_retry_cnt} chunks."
+            )
+            translated, updated_ctx = _try_agent(retry_agent)
+
+            # Retry agent also failed — reset streak so next chunk tries primary first.
+            if not self._is_valid_translation(translated, expected):
+                logger.warning(f"Retry agent also failed for chunk {chunk_id}, resetting retry streak.")
+                self.use_retry_cnt = 0
 
         if not translated:
             raise ChatBotException(f"Failed to translate chunk {chunk_id}.")
@@ -220,12 +235,8 @@ class LLMTranslator(Translator):
             atomic = False
             translated, context = self._translate_chunk(translator_agent, chunk, context, i, retry_agent=retry_agent)
             chunk_texts = [c[1] for c in chunk]
-            # Proofreader Not fully tested
-            # localized_trans = proofreader.proofread(
-            #     texts=chunk_texts, translations=translated, context=context
-            # )
 
-            if len(translated) != len(chunk):
+            if not self._is_valid_translation(translated, len(chunk)):
                 logger.warning(
                     f"Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},"
                     f" Attempting atomic translation."
