@@ -33,6 +33,8 @@ class LLMTranslator(Translator):
 
     CHUNK_SIZE = 30
     RETRY_STREAK = 10  # Number of consecutive chunks to use retry model after a failure
+    LINE_MISMATCH_RETRIES = 2  # Max attempts per agent for line-count mismatch recovery
+    MIN_SPLIT_SIZE = 3  # Minimum chunk size for binary-split retry; below this, use atomic
 
     def __init__(
         self,
@@ -112,29 +114,45 @@ class LLMTranslator(Translator):
         (e.g. split or atomic translation) is needed.
         """
         expected = len(chunk)
+        max_attempts = 1 if retry_agent else self.LINE_MISMATCH_RETRIES
 
         def _try_agent(agent: ChunkedTranslatorAgent) -> tuple[list[str] | None, TranslationContext | None]:
-            """Single agent attempt: translate, then retry without glossary if line count mismatches."""
+            """Try an agent up to max_attempts times for line-count mismatch recovery.
+
+            Each attempt includes a glossary-removal sub-retry when applicable.
+            Returns the best available result (may still have mismatched line count).
+            """
             trans: list[str] | None = None
             ctx: TranslationContext | None = None
-            try:
-                trans, ctx = agent.translate_chunk(chunk_id, chunk, context)
-            except ChatBotException:
-                logger.error(f"Failed to translate chunk {chunk_id}.")
-                return None, None
 
-            if self._is_valid_translation(trans, expected):
-                return trans, ctx
-
-            # Line count mismatch — retry without glossary if applicable.
-            if trans is not None and agent.info.glossary:
-                logger.warning(
-                    f"Agent {agent}: Removing glossary for chunk {chunk_id} due to inconsistent translation."
-                )
+            for attempt in range(max_attempts):
                 try:
-                    trans, ctx = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+                    trans, ctx = agent.translate_chunk(chunk_id, chunk, context)
                 except ChatBotException:
                     logger.error(f"Failed to translate chunk {chunk_id}.")
+                    return None, None
+
+                if self._is_valid_translation(trans, expected):
+                    return trans, ctx
+
+                # Line count mismatch — retry without glossary if applicable.
+                if trans is not None and agent.info.glossary:
+                    logger.warning(
+                        f"Agent {agent}: Removing glossary for chunk {chunk_id} due to inconsistent translation."
+                    )
+                    try:
+                        trans, ctx = agent.translate_chunk(chunk_id, chunk, context, use_glossary=False)
+                    except ChatBotException:
+                        logger.error(f"Failed to translate chunk {chunk_id}.")
+
+                if self._is_valid_translation(trans, expected):
+                    return trans, ctx
+
+                if attempt < max_attempts - 1:
+                    logger.warning(
+                        f"Chunk {chunk_id} line count mismatch ({len(trans) if trans else 0} vs {expected}),"
+                        f" retrying ({attempt + 1}/{max_attempts})."
+                    )
 
             return trans, ctx
 
@@ -166,6 +184,58 @@ class LLMTranslator(Translator):
             raise ChatBotException(f"Failed to translate chunk {chunk_id}.")
 
         return translated, updated_ctx or context
+
+    def _split_and_translate(
+        self,
+        translator_agent: ChunkedTranslatorAgent,
+        chunk: list[tuple[int, str]],
+        context: TranslationContext,
+        chunk_id: int,
+        src_lang: str,
+        target_lang: str,
+        retry_agent: ChunkedTranslatorAgent | None = None,
+    ) -> list[str]:
+        """Recursively split a chunk in half and translate each half separately.
+
+        Used as a fallback when ``_translate_chunk`` returns a line-count mismatch.
+        Splits at the midpoint, translates each half via ``_translate_chunk``, and
+        merges the results.  Halves that still mismatch are split again recursively
+        until ``MIN_SPLIT_SIZE`` is reached, at which point ``atomic_translate`` is
+        used as the final fallback.
+
+        Returns:
+            List of translated strings with ``len == len(chunk)``.
+        """
+        if len(chunk) <= self.MIN_SPLIT_SIZE:
+            if not chunk:
+                return []
+            logger.info(f"Chunk {chunk_id} below MIN_SPLIT_SIZE ({self.MIN_SPLIT_SIZE}), using atomic translation.")
+            return self.atomic_translate(self.chatbot, [c[1] for c in chunk], src_lang, target_lang)
+
+        mid = len(chunk) // 2
+        left, right = chunk[:mid], chunk[mid:]
+        logger.info(f"Splitting chunk {chunk_id} into {len(left)}+{len(right)} lines for retry.")
+
+        results: list[str] = []
+        for half in (left, right):
+            try:
+                translated, _ = self._translate_chunk(
+                    translator_agent, half, context, chunk_id, retry_agent=retry_agent
+                )
+            except ChatBotException:
+                translated = None
+
+            if self._is_valid_translation(translated, len(half)):
+                results.extend(translated)
+            else:
+                # Recurse on the failing half.
+                results.extend(
+                    self._split_and_translate(
+                        translator_agent, half, context, chunk_id, src_lang, target_lang, retry_agent
+                    )
+                )
+
+        return results
 
     def translate(
         self,
@@ -234,14 +304,15 @@ class LLMTranslator(Translator):
         for i, chunk in list(enumerate(chunks, start=1))[start_chunk:]:
             atomic = False
             translated, context = self._translate_chunk(translator_agent, chunk, context, i, retry_agent=retry_agent)
-            chunk_texts = [c[1] for c in chunk]
 
             if not self._is_valid_translation(translated, len(chunk)):
                 logger.warning(
                     f"Chunk {i} translation length inconsistent: {len(translated)} vs {len(chunk)},"
-                    f" Attempting atomic translation."
+                    f" attempting binary-split retry."
                 )
-                translated = self.atomic_translate(self.chatbot, chunk_texts, src_lang, target_lang)
+                translated = self._split_and_translate(
+                    translator_agent, chunk, context, i, src_lang, target_lang, retry_agent=retry_agent
+                )
                 atomic = True
 
             translations.extend(translated)
