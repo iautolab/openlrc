@@ -588,7 +588,8 @@ class LRCer:
         json_filename = Path(translated_path.parent / (audio_name + ".json"))
         compare_path = Path(translated_path.parent, f"{audio_name}{COMPARE_SUFFIX}.json")
         if not translated_path.exists():
-            translator = LLMTranslator(chatbot=self.chatbot, retry_chatbot=self.retry_chatbot)
+            timestamps = [(seg.start, seg.end) for seg in transcribed_opt_sub.segments]
+            translator = LLMTranslator(chatbot=self.chatbot, retry_chatbot=self.retry_chatbot, timestamps=timestamps)
 
             target_texts = translator.translate(
                 transcribed_opt_sub.texts,
