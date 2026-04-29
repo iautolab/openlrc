@@ -252,6 +252,50 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
+    def test_retry_streak_resets_when_retry_agent_also_fails(self, mock_agent_cls, mock_reviewer_cls):
+        """When retry agent also returns wrong length, use_retry_cnt resets to 0."""
+        texts = ["Hello", "World"]
+
+        primary_agent = MagicMock()
+        primary_agent.cost = 0
+        primary_agent.info.glossary = None
+        primary_agent.translate_chunk.return_value = (
+            ["only_one"],
+            TranslationContext(summary="s", scene="sc", guideline="g"),
+        )
+
+        retry_agent = MagicMock()
+        retry_agent.cost = 0
+        retry_agent.info.glossary = None
+        # Retry also returns wrong length
+        retry_agent.translate_chunk.return_value = (
+            ["still_wrong"],
+            TranslationContext(summary="s", scene="sc", guideline="g"),
+        )
+
+        mock_agent_cls.side_effect = [primary_agent, retry_agent]
+
+        mock_reviewer = mock_reviewer_cls.return_value
+        mock_reviewer.build_context.return_value = "guideline"
+
+        translator = self._make_translator(chunk_size=30, retry_chatbot=_make_mock_chatbot())
+
+        # Mock atomic_translate to provide fallback
+        translator.atomic_translate = MagicMock(return_value=["你好", "世界"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            compare_path = Path(tmpdir) / "compare.json"
+            result = translator.translate(texts, "en", "zh", compare_path=compare_path)
+
+        self.assertEqual(result, ["你好", "世界"])
+        # Both agents were tried
+        primary_agent.translate_chunk.assert_called_once()
+        retry_agent.translate_chunk.assert_called_once()
+        # Streak should be reset to 0 after retry agent also failed
+        self.assertEqual(translator.use_retry_cnt, 0)
+
+    @patch("openlrc.translate.ContextReviewerAgent")
+    @patch("openlrc.translate.ChunkedTranslatorAgent")
     def test_resume_from_compare_file(self, mock_agent_cls, mock_reviewer_cls):
         """Translation resumes from saved compare file, skipping already-translated chunks."""
         texts = [f"text{i}" for i in range(6)]
