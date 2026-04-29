@@ -66,6 +66,72 @@ class TestMakeChunks(unittest.TestCase):
         self.assertEqual(all_line_numbers, list(range(1, 9)))
 
 
+class TestMakeChunksByTokens(unittest.TestCase):
+    """Unit tests for LLMTranslator.make_chunks_by_tokens."""
+
+    def _make_translator(self, chunk_size=30, max_chunk_tokens=1000, scene_threshold=30.0):
+        bot = _make_mock_chatbot()
+        t = LLMTranslator(chatbot=bot, chunk_size=chunk_size)
+        t.MAX_CHUNK_TOKENS = max_chunk_tokens
+        t.SCENE_THRESHOLD = scene_threshold
+        return t
+
+    def test_no_timestamps_splits_by_tokens(self):
+        """Without timestamps, chunks are split by token budget only."""
+        # Use a very small token budget to force splitting.
+        translator = self._make_translator(max_chunk_tokens=20)
+        texts = [f"word{i} " * 5 for i in range(6)]  # Each line ~5 tokens
+        chunks = translator.make_chunks_by_tokens(texts)
+        # With ~5 tokens per line and budget=20, expect ~4 lines per chunk.
+        self.assertTrue(all(len(c) <= 5 for c in chunks))
+        # All lines present.
+        all_nums = [num for c in chunks for num, _ in c]
+        self.assertEqual(all_nums, list(range(1, 7)))
+
+    def test_scene_boundary_forces_split(self):
+        """A time gap > SCENE_THRESHOLD forces a chunk break."""
+        translator = self._make_translator(max_chunk_tokens=10000, scene_threshold=30.0)
+        texts = ["line1", "line2", "line3", "line4"]
+        # 60s gap between line2 and line3 → scene boundary.
+        translator.timestamps = [(0.0, 1.0), (1.0, 2.0), (62.0, 63.0), (63.0, 64.0)]
+        chunks = translator.make_chunks_by_tokens(texts)
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual([n for n, _ in chunks[0]], [1, 2])
+        self.assertEqual([n for n, _ in chunks[1]], [3, 4])
+
+    def test_line_count_cap(self):
+        """chunk_size acts as a line-count upper bound."""
+        translator = self._make_translator(chunk_size=3, max_chunk_tokens=10000)
+        texts = [f"short{i}" for i in range(9)]
+        chunks = translator.make_chunks_by_tokens(texts)
+        self.assertTrue(all(len(c) <= 3 for c in chunks))
+
+    def test_empty_input(self):
+        translator = self._make_translator()
+        self.assertEqual(translator.make_chunks_by_tokens([]), [])
+
+    def test_small_tail_merged(self):
+        """A small trailing chunk is merged into the previous one."""
+        translator = self._make_translator(chunk_size=5, max_chunk_tokens=10000)
+        texts = [f"text{i}" for i in range(7)]  # 5 + 2, tail 2 < 5/2 → merge
+        chunks = translator.make_chunks_by_tokens(texts)
+        self.assertEqual(len(chunks), 1)  # All merged into one chunk.
+
+    def test_best_split_at_largest_gap(self):
+        """When token budget is exceeded, split at the largest time gap."""
+        translator = self._make_translator(max_chunk_tokens=30, chunk_size=30)
+        texts = ["word " * 5] * 6  # Each line ~5 tokens, total ~30 → triggers split
+        # Largest gap between line 3 and line 4 (10s gap vs 1s gaps).
+        timestamps = [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (13.0, 14.0), (14.0, 15.0), (15.0, 16.0)]
+        translator.timestamps = timestamps
+        chunks = translator.make_chunks_by_tokens(texts)
+        # Should split at the 10s gap (between line 3 and 4).
+        self.assertTrue(len(chunks) >= 2)
+        first_chunk_lines = [n for n, _ in chunks[0]]
+        self.assertIn(3, first_chunk_lines)
+        self.assertNotIn(4, first_chunk_lines)
+
+
 def _make_mock_chatbot(name: str = "gpt-4.1-nano") -> MagicMock:
     """Return a lightweight mock ChatBot."""
     bot = MagicMock()

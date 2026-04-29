@@ -16,6 +16,7 @@ from openlrc.context import TranslateInfo, TranslationContext
 from openlrc.exceptions import ChatBotException
 from openlrc.logger import logger
 from openlrc.prompter import AtomicTranslatePrompter
+from openlrc.utils import get_text_token_number
 
 
 class Translator(ABC):
@@ -35,6 +36,8 @@ class LLMTranslator(Translator):
     RETRY_STREAK = 10  # Number of consecutive chunks to use retry model after a failure
     LINE_MISMATCH_RETRIES = 2  # Max attempts per agent for line-count mismatch recovery
     MIN_SPLIT_SIZE = 3  # Minimum chunk size for binary-split retry; below this, use atomic
+    MAX_CHUNK_TOKENS = 1000  # Token budget per chunk (text content only, excludes prompt overhead)
+    SCENE_THRESHOLD = 30.0  # Seconds of silence that indicates a scene boundary
 
     def __init__(
         self,
@@ -44,6 +47,7 @@ class LLMTranslator(Translator):
         chunk_size: int = CHUNK_SIZE,
         intercept_line: int | None = None,
         chunked_guideline: bool = False,
+        timestamps: list[tuple[float, float | None]] | None = None,
     ):
         """
         Initialize the LLMTranslator with given parameters.
@@ -51,9 +55,12 @@ class LLMTranslator(Translator):
         Args:
             chatbot: Primary ChatBot instance for translation.
             retry_chatbot: Optional ChatBot instance for retry attempts.
-            chunk_size: Size of text chunks for processing, balancing efficiency and context.
+            chunk_size: Maximum lines per chunk for processing.
             intercept_line: Line number to intercept translation, useful for debugging.
             chunked_guideline: Enable chunked guideline generation for long texts. Default: False.
+            timestamps: Optional list of (start, end) per line for scene-aware chunking.
+                When provided, chunk splitting respects scene boundaries (time gaps > SCENE_THRESHOLD).
+                When None, only token budget and line-count limits apply.
         """
         self.chatbot = chatbot
         self.retry_chatbot = retry_chatbot
@@ -61,6 +68,7 @@ class LLMTranslator(Translator):
         self.api_fee = 0
         self.intercept_line = intercept_line
         self.chunked_guideline = chunked_guideline
+        self.timestamps = timestamps
         self.use_retry_cnt = 0
 
     @staticmethod
@@ -88,6 +96,132 @@ class LLMTranslator(Translator):
             chunks.pop()
 
         return chunks
+
+    def make_chunks_by_tokens(self, texts: list[str]) -> list[list[tuple[int, str]]]:
+        """Split texts into chunks using token budget, scene boundaries, and line-count limits.
+
+        Splitting strategy (applied in priority order):
+        1. **Scene boundary (hard split):** A time gap > ``SCENE_THRESHOLD`` between
+           adjacent lines forces a chunk break regardless of token budget.
+           Only active when ``self.timestamps`` is set.
+        2. **Token budget:** Accumulated text tokens must not exceed ``MAX_CHUNK_TOKENS``.
+           When the budget is exceeded, the chunk is split at the largest time gap
+           within the current chunk (if timestamps are available), otherwise at the
+           current position.
+        3. **Line-count cap:** A chunk never exceeds ``chunk_size`` lines.
+
+        A small trailing chunk (< chunk_size/2 lines *and* < MAX_CHUNK_TOKENS/2 tokens)
+        is merged into the previous chunk, unless a scene boundary separates them.
+
+        Args:
+            texts: List of subtitle texts.
+
+        Returns:
+            List of chunks, each chunk a list of ``(line_number, text)`` tuples.
+        """
+        if not texts:
+            return []
+
+        timestamps = self.timestamps
+        # Validate timestamps length if provided.
+        if timestamps is not None and len(timestamps) != len(texts):
+            logger.warning(
+                f"Timestamps length ({len(timestamps)}) != texts length ({len(texts)}), ignoring timestamps."
+            )
+            timestamps = None
+
+        # Pre-compute token counts for each line.
+        token_counts = [get_text_token_number(t) for t in texts]
+
+        chunks: list[list[tuple[int, str]]] = []
+        current_chunk: list[tuple[int, str]] = []
+        current_tokens = 0
+
+        for idx, text in enumerate(texts):
+            line_number = idx + 1
+            line_tokens = token_counts[idx]
+
+            # Check scene boundary: gap between previous line's end and current line's start.
+            if timestamps and current_chunk and idx > 0:
+                prev_end = timestamps[idx - 1][1]
+                cur_start = timestamps[idx][0]
+                if prev_end is not None and (cur_start - prev_end) > self.SCENE_THRESHOLD:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_tokens = 0
+
+            # Check token budget or line-count cap — need to flush before adding.
+            if current_chunk and (
+                current_tokens + line_tokens > self.MAX_CHUNK_TOKENS or len(current_chunk) >= self.chunk_size
+            ):
+                # Try to split at the largest time gap within the current chunk.
+                split_idx = self._find_best_split(current_chunk, timestamps)
+                if split_idx is not None and split_idx > 0:
+                    chunks.append(current_chunk[:split_idx])
+                    leftover = current_chunk[split_idx:]
+                    current_chunk = leftover
+                    current_tokens = sum(token_counts[c[0] - 1] for c in current_chunk)
+                else:
+                    chunks.append(current_chunk)
+                    current_chunk = []
+                    current_tokens = 0
+
+            current_chunk.append((line_number, text))
+            current_tokens += line_tokens
+
+        if current_chunk:
+            chunks.append(current_chunk)
+
+        # Merge small trailing chunk into the previous one, unless a scene boundary separates them.
+        if len(chunks) >= 2:
+            tail = chunks[-1]
+            is_small_tail = (
+                len(tail) < self.chunk_size / 2
+                and sum(token_counts[c[0] - 1] for c in tail) < self.MAX_CHUNK_TOKENS / 2
+            )
+
+            # Check for scene boundary between the two chunks.
+            scene_break = False
+            if timestamps and is_small_tail:
+                prev_last = chunks[-2][-1][0] - 1  # 0-based index of last line in previous chunk
+                tail_first = tail[0][0] - 1  # 0-based index of first line in tail
+                prev_end = timestamps[prev_last][1]
+                cur_start = timestamps[tail_first][0]
+                if prev_end is not None and (cur_start - prev_end) > self.SCENE_THRESHOLD:
+                    scene_break = True
+
+            if is_small_tail and not scene_break:
+                chunks[-2].extend(tail)
+                chunks.pop()
+
+        return chunks
+
+    @staticmethod
+    def _find_best_split(
+        chunk: list[tuple[int, str]], timestamps: list[tuple[float, float | None]] | None
+    ) -> int | None:
+        """Find the index within *chunk* that has the largest time gap before it.
+
+        Returns the chunk-local index (1..len-1) of the best split point,
+        or *None* if timestamps are unavailable or the chunk has fewer than 2 lines.
+        """
+        if not timestamps or len(chunk) < 2:
+            return None
+
+        best_gap = -1.0
+        best_idx = None
+        for i in range(1, len(chunk)):
+            prev_global = chunk[i - 1][0] - 1  # 0-based index into timestamps
+            cur_global = chunk[i][0] - 1
+            prev_end = timestamps[prev_global][1]
+            cur_start = timestamps[cur_global][0]
+            if prev_end is not None:
+                gap = cur_start - prev_end
+                if gap > best_gap:
+                    best_gap = gap
+                    best_idx = i
+
+        return best_idx
 
     @staticmethod
     def _is_valid_translation(translated: list[str] | None, expected_len: int) -> bool:
@@ -279,9 +413,7 @@ class LLMTranslator(Translator):
             else None
         )
 
-        # proofreader = ProofreaderAgent(src_lang, target_lang, info, chatbot=self.chatbot)
-
-        chunks = self.make_chunks(texts, chunk_size=self.chunk_size)
+        chunks = self.make_chunks_by_tokens(texts)
         logger.info(f"Translating {info.title}: {len(chunks)} chunks, {len(texts)} lines in total.")
 
         translations, summaries, compare_list, start_chunk, guideline = self._resume_translation(compare_path)
