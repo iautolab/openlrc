@@ -296,6 +296,69 @@ class TestLLMTranslatorTranslate(unittest.TestCase):
 
     @patch("openlrc.translate.ContextReviewerAgent")
     @patch("openlrc.translate.ChunkedTranslatorAgent")
+    def test_binary_split_retry_on_mismatch(self, mock_agent_cls, mock_reviewer_cls):
+        """When full chunk fails, binary split translates each half successfully."""
+        texts = [f"line{i}" for i in range(6)]
+
+        call_count = 0
+
+        def translate_chunk_side_effect(chunk_id, chunk, context, use_glossary=True):
+            nonlocal call_count
+            call_count += 1
+            ctx = TranslationContext(summary="s", scene="sc", guideline=context.guideline)
+            # First call (full 6-line chunk) returns wrong length
+            if len(chunk) == 6:
+                return ["wrong"], ctx
+            # Halves (3 lines each) succeed
+            return [f"trans_{c[0]}" for c in chunk], ctx
+
+        mock_agent = mock_agent_cls.return_value
+        mock_agent.cost = 0
+        mock_agent.info.glossary = None
+        mock_agent.translate_chunk.side_effect = translate_chunk_side_effect
+
+        mock_reviewer = mock_reviewer_cls.return_value
+        mock_reviewer.build_context.return_value = "guideline"
+
+        translator = self._make_translator(chunk_size=30)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            compare_path = Path(tmpdir) / "compare.json"
+            result = translator.translate(texts, "en", "zh", compare_path=compare_path)
+
+        # 6 translations from two successful halves
+        self.assertEqual(len(result), 6)
+        self.assertTrue(all(r.startswith("trans_") for r in result))
+
+    @patch("openlrc.translate.ContextReviewerAgent")
+    @patch("openlrc.translate.ChunkedTranslatorAgent")
+    def test_binary_split_falls_back_to_atomic(self, mock_agent_cls, mock_reviewer_cls):
+        """When halves are below MIN_SPLIT_SIZE and still fail, atomic is used."""
+        texts = ["Hello", "World"]
+
+        mock_agent = mock_agent_cls.return_value
+        mock_agent.cost = 0
+        mock_agent.info.glossary = None
+        # Always return wrong length
+        mock_agent.translate_chunk.return_value = (
+            ["wrong"],
+            TranslationContext(summary="s", scene="sc", guideline="g"),
+        )
+
+        mock_reviewer = mock_reviewer_cls.return_value
+        mock_reviewer.build_context.return_value = "guideline"
+
+        translator = self._make_translator(chunk_size=30)
+        translator.atomic_translate = MagicMock(return_value=["你好", "世界"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            compare_path = Path(tmpdir) / "compare.json"
+            result = translator.translate(texts, "en", "zh", compare_path=compare_path)
+
+        self.assertEqual(result, ["你好", "世界"])
+        translator.atomic_translate.assert_called_once()
+
+    @patch("openlrc.translate.ContextReviewerAgent")
+    @patch("openlrc.translate.ChunkedTranslatorAgent")
     def test_resume_from_compare_file(self, mock_agent_cls, mock_reviewer_cls):
         """Translation resumes from saved compare file, skipping already-translated chunks."""
         texts = [f"text{i}" for i in range(6)]
