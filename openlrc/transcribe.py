@@ -217,14 +217,10 @@ class Transcriber:
                 former_words.append(word)
                 former_len += len(word.word)
 
-                # Special handling for languages without spaces between words
-                if lang in self.continuous_scripted and former_len >= splittable:
-                    if word.word.startswith(" "):
-                        break
-                    elif word.word.endswith(" "):
-                        former_words.append(word)
-                        former_len += len(word.word)
-                        break
+                # Special handling for languages without spaces between words:
+                # break at the first space boundary once we've accumulated enough text.
+                if lang in self.continuous_scripted and former_len >= splittable and " " in word.word:
+                    break
 
                 # Split at punctuation if possible
                 if former_len >= splittable and is_punct(word.word[-1]):
