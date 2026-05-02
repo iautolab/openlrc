@@ -753,7 +753,8 @@ class LRCer:
         """
         temp_folders = {path.parent for path in paths}
         for folder in temp_folders:
-            assert folder.name == PREPROCESSED_DIR, f"Not a temporary folder: {folder}"
+            if folder.name != PREPROCESSED_DIR:
+                raise ValueError(f"Not a temporary folder: {folder}")
 
             shutil.rmtree(folder)
             logger.debug(f"Removed {folder}")

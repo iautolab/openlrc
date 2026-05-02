@@ -79,7 +79,8 @@ class Subtitle:
 
     def set_texts(self, texts, lang=None):
         # Check length
-        assert len(texts) == len(self.segments)
+        if len(texts) != len(self.segments):
+            raise ValueError(f"Text count ({len(texts)}) does not match segment count ({len(self.segments)})")
 
         for i, text in enumerate(texts):
             self.segments[i].text = text
@@ -122,7 +123,8 @@ class Subtitle:
             for i, segment in enumerate(self.segments):
                 print(f"[{fmt(segment.start)}] {segment.text}", file=f, flush=True)
                 if i == len(self.segments) - 1 or segment.end != self.segments[i + 1].start:
-                    assert segment.end is not None, "Segment end time is required for LRC output"
+                    if segment.end is None:
+                        raise ValueError("Segment end time is required for LRC output")
                     print(f"[{fmt(segment.end)}]", file=f, flush=True)
 
         logger.info(f"File saved to {lrc_path}")
@@ -134,7 +136,8 @@ class Subtitle:
         fmt = partial(format_timestamp, fmt="srt")
         with open(srt_path, "w", encoding="utf-8") as f:
             for i, segment in enumerate(self.segments, start=1):
-                assert segment.end is not None, "Segment end time is required for SRT output"
+                if segment.end is None:
+                    raise ValueError("Segment end time is required for SRT output")
                 print(f"{i}\n{fmt(segment.start)} --> {fmt(segment.end)}\n{segment.text}\n", file=f, flush=True)
 
         logger.info(f"File saved to {srt_path}")
@@ -157,13 +160,15 @@ class Subtitle:
         for i, line in enumerate(lines):
             # get time stamp
             match = re.search(r"\[(\d+:\d+(?:\.\d+)?)](.*)", line)
-            assert match is not None, f"Invalid LRC line: {line!r}"
+            if match is None:
+                raise ValueError(f"Invalid LRC line: {line!r}")
             start_str, text = match.group(1, 2)
             start = parse_timestamp(start_str, fmt="lrc")
 
             if i != len(lines) - 1:
                 next_match = re.search(r"\[(\d+:\d+(?:\.\d+)?)]", lines[i + 1])
-                assert next_match is not None, f"Invalid LRC line: {lines[i + 1]!r}"
+                if next_match is None:
+                    raise ValueError(f"Invalid LRC line: {lines[i + 1]!r}")
                 end_str = next_match.group(1)
                 end = parse_timestamp(end_str, fmt="lrc")
             else:
@@ -205,7 +210,8 @@ class Subtitle:
             line = lines[i]
             if line.strip().isdigit():
                 time_match = re.search(r"(\d+:\d+:\d+,\d+) --> (\d+:\d+:\d+,\d+)", lines[i + 1])
-                assert time_match is not None, f"Invalid SRT timing line: {lines[i + 1]!r}"
+                if time_match is None:
+                    raise ValueError(f"Invalid SRT timing line: {lines[i + 1]!r}")
                 start_str, end_str = time_match.group(1, 2)
                 start = parse_timestamp(start_str, fmt="srt")
                 end = parse_timestamp(end_str, fmt="srt")
@@ -336,7 +342,8 @@ class BilingualSubtitle:
                     flush=True,
                 )
                 if i == len(self.segments) - 1 or segment.end != self.segments[i + 1].start:
-                    assert segment.end is not None, "Segment end time is required for LRC output"
+                    if segment.end is None:
+                        raise ValueError("Segment end time is required for LRC output")
                     print(f"[{fmt(segment.end)}]", file=f, flush=True)
 
         logger.info(f"File saved to {lrc_path}")
@@ -348,7 +355,8 @@ class BilingualSubtitle:
         fmt = partial(format_timestamp, fmt="srt")
         with open(srt_path, "w", encoding="utf-8") as f:
             for i, segment in enumerate(self.segments, start=1):
-                assert segment.end is not None, "Segment end time is required for SRT output"
+                if segment.end is None:
+                    raise ValueError("Segment end time is required for SRT output")
                 print(
                     f"{i}\n"
                     f"{fmt(segment.start)} --> {fmt(segment.end)}\n"

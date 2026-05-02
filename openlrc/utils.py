@@ -169,12 +169,14 @@ class Timer:
 
     @property
     def _elapsed(self) -> float:
-        assert self._start is not None and self._stop is not None, "Timer not started/stopped"
+        if self._start is None or self._stop is None:
+            raise RuntimeError("Timer not started/stopped")
         return self._stop - self._start
 
     @property
     def duration(self) -> float:
-        assert self._start is not None, "Timer not started"
+        if self._start is None:
+            raise RuntimeError("Timer not started")
         return time.perf_counter() - self._start
 
     def __enter__(self):

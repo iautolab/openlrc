@@ -56,7 +56,8 @@ def _register_chatbot(cls):
 def route_chatbot(model: str) -> tuple[type, str]:
     if ":" in model:
         match = re.match(r"(.+):(.+)", model)
-        assert match is not None, f"Invalid model format: {model!r}"
+        if match is None:
+            raise ValueError(f"Invalid model format: {model!r}")
         chatbot_type, chatbot_model = match.groups()
         chatbot_type, chatbot_model = chatbot_type.strip().lower(), chatbot_model.strip()
 
@@ -172,7 +173,8 @@ class ChatBot:
             temperature: Sampling temperature for this call. Falls back to the instance default if None.
             top_p: Top-p sampling for this call. Falls back to the instance default if None.
         """
-        assert messages_list, "Empty message list."
+        if not messages_list:
+            raise ValueError("Empty message list.")
 
         # Normalise to list[list[dict]] so downstream code has a single type.
         normalised: list[list[dict]]
@@ -351,7 +353,12 @@ class GPTBot(ChatBot):
                 )
                 self.update_fee(response)
                 if response.choices[0].finish_reason == "length":
-                    raise LengthExceedException(response)
+                    usage = response.usage
+                    raise LengthExceedException(
+                        prompt_tokens=usage.prompt_tokens if usage else -1,
+                        completion_tokens=usage.completion_tokens if usage else -1,
+                        total_tokens=usage.total_tokens if usage else -1,
+                    )
 
                 response_text = remove_stop(self.get_content(response), stop_sequences)
 
@@ -493,7 +500,12 @@ class ClaudeBot(ChatBot):
                 self.update_fee(response)
 
                 if response.stop_reason == "max_tokens":
-                    raise LengthExceedException(response)
+                    usage = response.usage
+                    raise LengthExceedException(
+                        prompt_tokens=usage.input_tokens if usage else -1,
+                        completion_tokens=usage.output_tokens if usage else -1,
+                        total_tokens=(usage.input_tokens + usage.output_tokens) if usage else -1,
+                    )
 
                 response_text = remove_stop(self.get_content(response), stop_sequences)
 
