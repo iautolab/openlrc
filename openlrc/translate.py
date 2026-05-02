@@ -405,6 +405,9 @@ class LLMTranslator(Translator):
         if not isinstance(texts, list):
             texts = [texts]
 
+        if not texts:
+            return []
+
         translator_agent = ChunkedTranslatorAgent(src_lang, target_lang, info, chatbot=self.chatbot)
 
         retry_agent = (
