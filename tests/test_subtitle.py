@@ -72,7 +72,7 @@ class TestSubtitle(unittest.TestCase):
 
     def test_set_texts_edge_case(self):
         subtitle = self.subtitle
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             subtitle.set_texts(["Hello"])
 
     def test_set_texts_edge_case_2(self):
