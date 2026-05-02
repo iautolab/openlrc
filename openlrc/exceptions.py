@@ -1,9 +1,6 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
 
-from anthropic.types import Message
-from openai.types.chat import ChatCompletion
-
 
 class SameLanguageException(Exception):
     """
@@ -31,19 +28,7 @@ class LengthExceedException(ChatBotException):
     Raised when the length of generated response exceeds the limit.
     """
 
-    def __init__(self, response: ChatCompletion | Message):
-        if isinstance(response, ChatCompletion):
-            assert response.usage is not None, "ChatCompletion.usage is None"
-            prompt_tokens = response.usage.prompt_tokens
-            completion_tokens = response.usage.completion_tokens
-            total_tokens = response.usage.total_tokens
-        elif isinstance(response, Message):
-            prompt_tokens = response.usage.input_tokens
-            completion_tokens = response.usage.output_tokens
-            total_tokens = prompt_tokens + completion_tokens
-        else:
-            raise ValueError(f"Invalid response type: {type(response)}")
-
+    def __init__(self, prompt_tokens: int = -1, completion_tokens: int = -1, total_tokens: int = -1):
         super().__init__(
             f"Failed to get completion. Exceed max token length. "
             f"Prompt tokens: {prompt_tokens}, "

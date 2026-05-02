@@ -201,7 +201,8 @@ class Transcriber:
             Returns:
                 list: List of split segments.
             """
-            assert seg_entry.words is not None, "Segment must have word-level timestamps for splitting"
+            if seg_entry.words is None:
+                raise ValueError("Segment must have word-level timestamps for splitting")
             text = seg_entry.text
             doc = nlp(text)
 
@@ -265,7 +266,8 @@ class Transcriber:
         id_cnt = 0
         sentences = []  # [{'text': , 'start': , 'end': , 'words': [{word: , start: , end: , score: }, ...]}, ...]
         for segment in segments:
-            assert segment.words is not None, "Segment must have word-level timestamps"
+            if segment.words is None:
+                raise ValueError("Segment must have word-level timestamps")
             # Use pysbd to split the segment text into potential sentences
             splits = [s for s in segmenter.segment(segment.text) if s]  # Also filter out empty splits
             word_start = 0
@@ -317,7 +319,8 @@ class Transcriber:
                         list: List of segments after recursive splitting.
                     """
                     # Check if the segment needs splitting
-                    assert entry.words is not None, "Segment must have word-level timestamps"
+                    if entry.words is None:
+                        raise ValueError("Segment must have word-level timestamps")
                     char_limit = 45 if lang in self.continuous_scripted else 90
                     if len(entry.text) < char_limit or len(entry.words) == 1:
                         if entry.end - entry.start > 10:  # Split if duration > 10s
