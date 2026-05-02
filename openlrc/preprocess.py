@@ -95,9 +95,10 @@ class Preprocessor:
 
                 enhanced = torch.cat(enhanced_chunks, dim=1)
 
-                assert enhanced.shape == audio.shape, (
-                    f"Enhanced audio shape does not match original audio shape: {enhanced.shape} != {audio.shape}"
-                )
+                if enhanced.shape != audio.shape:
+                    raise ValueError(
+                        f"Enhanced audio shape does not match original audio shape: {enhanced.shape} != {audio.shape}"
+                    )
 
                 save_audio(ns_path, enhanced, sr=df_state.sr())
 
