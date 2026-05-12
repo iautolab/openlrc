@@ -8,9 +8,9 @@ from pathlib import Path
 import openai
 
 from openlrc.agents import create_chatbot
+from openlrc.media_utils import get_similarity
 from openlrc.models import ModelConfig, ModelProvider
 from openlrc.translate import LLMTranslator
-from openlrc.utils import get_similarity
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")

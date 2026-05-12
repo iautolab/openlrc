@@ -11,7 +11,8 @@ from tqdm import tqdm
 
 from openlrc.defaults import default_asr_options, default_vad_options
 from openlrc.logger import logger
-from openlrc.utils import Timer, format_timestamp, get_audio_duration, spacy_load
+from openlrc.media_utils import get_audio_duration, spacy_load
+from openlrc.utils import Timer, format_timestamp
 
 
 class TranscriptionInfo(NamedTuple):

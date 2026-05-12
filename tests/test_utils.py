@@ -6,16 +6,14 @@ from pathlib import Path
 
 import torch
 
+from openlrc.media_utils import extract_audio, get_file_type, release_memory
 from openlrc.utils import (
     extend_filename,
-    extract_audio,
     format_timestamp,
-    get_file_type,
     get_messages_token_number,
     get_text_token_number,
     normalize,
     parse_timestamp,
-    release_memory,
 )
 
 

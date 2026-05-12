@@ -31,17 +31,10 @@ from openlrc.defaults import (
     default_vad_options,
 )
 from openlrc.logger import logger
+from openlrc.media_utils import extract_audio, get_audio_duration, get_file_type
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import BilingualSubtitle, Subtitle
-from openlrc.utils import (
-    Timer,
-    extend_filename,
-    extract_audio,
-    format_timestamp,
-    get_audio_duration,
-    get_file_type,
-    get_preprocessed_path,
-)
+from openlrc.utils import Timer, extend_filename, format_timestamp, get_preprocessed_path
 
 _SENTINEL = object()
 

@@ -53,3 +53,16 @@ class TestLazyImports(unittest.TestCase):
     def test_lrcer_import_does_not_load_heavy_runtime_dependencies(self):
         loaded = self._loaded_modules_after("from openlrc import LRCer")
         self.assertEqual([name for name in loaded if name.split(".")[0] in self.FORBIDDEN_ROOTS], [])
+
+    def test_translate_path_does_not_load_media_utils_or_heavy_deps(self):
+        """Importing only the translation-path modules must not pull in media_utils or heavy deps."""
+        loaded = self._loaded_modules_after(
+            "from openlrc.agents import create_chatbot; "
+            "from openlrc.context import TranslateInfo; "
+            "from openlrc.opt import SubtitleOptimizer; "
+            "from openlrc.subtitle import BilingualSubtitle, Subtitle; "
+            "from openlrc.translate import LLMTranslator"
+        )
+        self.assertNotIn("openlrc.media_utils", loaded)
+        self.assertNotIn("openlrc.openlrc", loaded)
+        self.assertEqual([name for name in loaded if name.split(".")[0] in self.FORBIDDEN_ROOTS], [])

@@ -9,7 +9,8 @@ from tqdm import tqdm
 
 from openlrc.defaults import LOUDNORM_SUFFIX, NOISE_SUPPRESSED_SUFFIX, PREPROCESSED_DIR, default_preprocess_options
 from openlrc.logger import logger
-from openlrc.utils import get_preprocessed_path, release_memory
+from openlrc.media_utils import release_memory
+from openlrc.utils import get_preprocessed_path
 
 
 def loudness_norm_single(audio_path: Path, ln_path: Path):
