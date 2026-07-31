@@ -9,12 +9,13 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from typing import cast
 
 import anthropic
 import httpx
 import openai
 from anthropic import Anthropic
-from anthropic._types import omit
+from anthropic._types import Omit, omit
 from anthropic.types import Message
 from google import genai
 from google.genai import errors as genai_errors
@@ -117,7 +118,7 @@ class ChatBot:
         When set, the result is clamped to at most ``min_tokens`` (cost control),
         with a warning if the estimate exceeds the budget.
         """
-        model_config = getattr(self, 'model_config', None)
+        model_config = getattr(self, "model_config", None)
         if model_config is None or model_config.max_tokens is None:
             return None
 
@@ -554,6 +555,7 @@ class ClaudeBot(ChatBot):
                 native_kwargs[key] = value
             else:
                 logger.debug(f"ClaudeBot: ignoring unsupported extra_body key: {key!r}")
+        native_top_k: int | Omit = native_kwargs.get("top_k", omit)
 
         response = None
         validated = False
@@ -567,7 +569,7 @@ class ClaudeBot(ChatBot):
                     top_p=effective_top_p,
                     stop_sequences=stop_sequences or omit,
                     max_tokens=max_tokens,
-                    **native_kwargs,
+                    top_k=native_top_k,
                 )
                 self.update_fee(response)
 
@@ -874,6 +876,19 @@ class LiteLLMBot(ChatBot):
     ):
         try:
             import litellm
+            from litellm.exceptions import (
+                APIConnectionError,
+                AuthenticationError,
+                BadRequestError,
+                InternalServerError,
+                NotFoundError,
+                PermissionDeniedError,
+                RateLimitError,
+                ServiceUnavailableError,
+                Timeout,
+                UnprocessableEntityError,
+            )
+            from litellm.types.utils import ModelResponse
         except ImportError:
             raise ImportError(
                 "litellm is required for the litellm: provider. Install with: pip install 'openlrc[litellm]'"
@@ -905,7 +920,7 @@ class LiteLLMBot(ChatBot):
         validated = False
         for i in range(self.retry):
             try:
-                response = litellm.completion(**completion_kwargs)
+                response = cast(ModelResponse, litellm.completion(**completion_kwargs))
                 self.update_fee(response)
 
                 if response.choices[0].finish_reason == "length":
@@ -924,21 +939,16 @@ class LiteLLMBot(ChatBot):
 
                 validated = True
                 break
-            except litellm.AuthenticationError as e:
+            except AuthenticationError as e:
                 raise ChatBotException(f"Authentication failed: {e}") from e
-            except (
-                litellm.BadRequestError,
-                litellm.NotFoundError,
-                litellm.PermissionDeniedError,
-                litellm.UnprocessableEntityError,
-            ) as e:
+            except (BadRequestError, NotFoundError, PermissionDeniedError, UnprocessableEntityError) as e:
                 raise ChatBotException(f"Client error: {e}") from e
             except (
-                litellm.RateLimitError,
-                litellm.APIConnectionError,
-                litellm.InternalServerError,
-                litellm.ServiceUnavailableError,
-                litellm.Timeout,
+                RateLimitError,
+                APIConnectionError,
+                InternalServerError,
+                ServiceUnavailableError,
+                Timeout,
                 json.decoder.JSONDecodeError,
             ) as e:
                 sleep_time = self._get_sleep_time(e)

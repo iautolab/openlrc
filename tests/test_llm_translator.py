@@ -560,9 +560,7 @@ class TestCheckpoint(unittest.TestCase):
     def test_save_load_roundtrip(self):
         """Data survives a save -> load roundtrip with identical semantics."""
         translator = self._make_translator()
-        compare_list = [
-            {"chunk": 3, "idx": 7, "method": "chunked", "model": "gpt-4", "input": "hi", "output": "嗨"},
-        ]
+        compare_list = [{"chunk": 3, "idx": 7, "method": "chunked", "model": "gpt-4", "input": "hi", "output": "嗨"}]
         context = {"summaries": ["s1", "s2", "s3"], "scene": "beach", "guideline": "Keep it casual."}
 
         with tempfile.TemporaryDirectory() as tmpdir:
