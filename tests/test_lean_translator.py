@@ -120,11 +120,7 @@ class TestLeanTranslatePrompter(unittest.TestCase):
     def test_context_layer_order(self):
         """Context layers appear in order: Summary > Characters > Terminology > Recent."""
         user = self.prompter.user(
-            "#1\nHello",
-            summary="sum",
-            characters="chars",
-            terminology="terms",
-            sliding_window="window",
+            "#1\nHello", summary="sum", characters="chars", terminology="terms", sliding_window="window"
         )
         idx_summary = user.index("Summary:")
         idx_chars = user.index("Characters:")
@@ -310,11 +306,7 @@ summary: John investigates a case."""
 @patch.dict(os.environ, {"OPENAI_API_KEY": "test-dummy"})
 class TestLeanTranslatorTranslate(unittest.TestCase):
     def _make_translator(self, enable_cr=True, cr_chatbot=None):
-        return LeanTranslator(
-            chatbot=_make_mock_chatbot(),
-            enable_cr=enable_cr,
-            cr_chatbot=cr_chatbot,
-        )
+        return LeanTranslator(chatbot=_make_mock_chatbot(), enable_cr=enable_cr, cr_chatbot=cr_chatbot)
 
     @patch("openlrc.translate.ContextReviewerAgent")
     def test_single_chunk_no_cr(self, mock_reviewer_cls):
@@ -381,7 +373,7 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
         translator = self._make_translator(enable_cr=False)
         texts = [f"line{i}" for i in range(10)]
 
-        anchored = "\n".join(f"#{i+1}\ntrans{i+1}" for i in range(9))
+        anchored = "\n".join(f"#{i + 1}\ntrans{i + 1}" for i in range(9))
         translator.chatbot.get_content.return_value = anchored
         translator.chatbot.message.return_value = [MagicMock()]
 
@@ -508,11 +500,7 @@ class TestLeanTranslatorTranslate(unittest.TestCase):
     def test_retry_chatbot_used_on_primary_failure(self, mock_reviewer_cls):
         """When primary chatbot returns >20% missing, retry_chatbot is tried."""
         retry_bot = _make_mock_chatbot("retry-model")
-        translator = LeanTranslator(
-            chatbot=_make_mock_chatbot(),
-            retry_chatbot=retry_bot,
-            enable_cr=False,
-        )
+        translator = LeanTranslator(chatbot=_make_mock_chatbot(), retry_chatbot=retry_bot, enable_cr=False)
         texts = ["Hello", "World"]
 
         # Primary chatbot returns empty (total failure)

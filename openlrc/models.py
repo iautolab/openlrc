@@ -237,25 +237,15 @@ class Models:
 
     # Gemini Models
     GEMINI_PRO = ModelInfo(
-        name="gemini-1.5-pro",
-        provider=ModelProvider.GOOGLE,
-        input_price=1.25,
-        output_price=5.0,
-        vision_support=True,
+        name="gemini-1.5-pro", provider=ModelProvider.GOOGLE, input_price=1.25, output_price=5.0, vision_support=True
     )
 
     GEMINI_FLASH = ModelInfo(
-        name="gemini-1.5-flash",
-        provider=ModelProvider.GOOGLE,
-        input_price=0.075,
-        output_price=0.30,
+        name="gemini-1.5-flash", provider=ModelProvider.GOOGLE, input_price=0.075, output_price=0.30
     )
 
     GEMINI_FLASH_8B = ModelInfo(
-        name="gemini-1.5-flash-8b",
-        provider=ModelProvider.GOOGLE,
-        input_price=0.0375,
-        output_price=0.15,
+        name="gemini-1.5-flash-8b", provider=ModelProvider.GOOGLE, input_price=0.0375, output_price=0.15
     )
 
     GEMINI_2_0_FLASH_LITE = ModelInfo(
@@ -304,27 +294,14 @@ class Models:
     )
 
     # Third Party Models
-    DEEPSEEK = ModelInfo(
-        name="deepseek-chat",
-        provider=ModelProvider.THIRD_PARTY,
-        input_price=0.14,
-        output_price=0.28,
-    )
+    DEEPSEEK = ModelInfo(name="deepseek-chat", provider=ModelProvider.THIRD_PARTY, input_price=0.14, output_price=0.28)
 
     DEEPSEEK_BETA = ModelInfo(
-        name="deepseek-chat",
-        provider=ModelProvider.THIRD_PARTY,
-        input_price=0.14,
-        output_price=0.28,
-        beta=True,
+        name="deepseek-chat", provider=ModelProvider.THIRD_PARTY, input_price=0.14, output_price=0.28, beta=True
     )
 
     DEEPSEEK_REASONER = ModelInfo(
-        name="deepseek-reasoner",
-        provider=ModelProvider.THIRD_PARTY,
-        input_price=0.14,
-        output_price=0.28,
-        beta=False,
+        name="deepseek-reasoner", provider=ModelProvider.THIRD_PARTY, input_price=0.14, output_price=0.28, beta=False
     )
 
     DEEPSEEK_REASONER_2 = ModelInfo(
@@ -442,8 +419,16 @@ class Models:
         elif lower_name.startswith(("gemini/", "google/")):
             default_model = cls.DefaultGeminiModelInfo(model_name)
         elif "/" in model_name and lower_name.split("/")[0] in (
-            "groq", "together_ai", "deepseek", "mistral", "bedrock",
-            "vertex_ai", "azure", "cohere", "fireworks", "replicate",
+            "groq",
+            "together_ai",
+            "deepseek",
+            "mistral",
+            "bedrock",
+            "vertex_ai",
+            "azure",
+            "cohere",
+            "fireworks",
+            "replicate",
         ):
             default_model = cls.DefaultThirdPartyModelInfo(model_name)
         elif any(name in lower_name for name in ["gpt", "openai", "davinci", "text-", "curie"]):

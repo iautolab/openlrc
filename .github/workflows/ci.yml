@@ -56,3 +56,26 @@ jobs:
       - name: Test with pytest
         run: |
           uv run --extra full --extra litellm pytest
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the latest version of uv and set the python version
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Type check with pyright
+        run: uv run pyright openlrc/
+
+      - name: Lint with ruff
+        run: uv run ruff check openlrc/ tests/
+
+      - name: Check formatting with ruff
+        run: uv run ruff format --check openlrc/ tests/

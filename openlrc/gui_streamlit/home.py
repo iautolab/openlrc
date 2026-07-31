@@ -303,10 +303,7 @@ if submitted:
             ),
             translation=TranslationConfig(
                 chatbot=ModelConfig(
-                    provider=bot_provider,
-                    name=chatbot_model,
-                    api_key=bot_api_key,
-                    proxy=proxy or None,
+                    provider=bot_provider, name=chatbot_model, api_key=bot_api_key, proxy=proxy or None
                 ),
                 fee_limit=fee_limit,
                 consumer_thread=consumer_thread,

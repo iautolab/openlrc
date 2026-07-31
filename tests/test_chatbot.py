@@ -237,9 +237,7 @@ class TestExtraBody(unittest.TestCase):
 
         def fake_create(**kwargs: object) -> None:
             captured.append(dict(kwargs))
-            raise openai.AuthenticationError(
-                message="test", response=httpx.Response(401), body=None
-            )
+            raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
 
         with patch.object(bot.client.chat.completions, "create", side_effect=fake_create):
             try:
@@ -257,10 +255,7 @@ class TestExtraBody(unittest.TestCase):
         # Non-native keys should be in extra_body
         self.assertIn("extra_body", call)
         self.assertEqual(call["extra_body"]["top_k"], 20)
-        self.assertEqual(
-            call["extra_body"]["chat_template_kwargs"],
-            {"enable_thinking": False},
-        )
+        self.assertEqual(call["extra_body"]["chat_template_kwargs"], {"enable_thinking": False})
 
         # Native keys should NOT be in extra_body
         self.assertNotIn("frequency_penalty", call["extra_body"])
@@ -275,9 +270,7 @@ class TestExtraBody(unittest.TestCase):
 
         def fake_create(**kwargs: object) -> None:
             captured.append(dict(kwargs))
-            raise openai.AuthenticationError(
-                message="test", response=httpx.Response(401), body=None
-            )
+            raise openai.AuthenticationError(message="test", response=httpx.Response(401), body=None)
 
         with patch.object(bot.client.chat.completions, "create", side_effect=fake_create):
             try:

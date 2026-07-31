@@ -231,7 +231,9 @@ class ChunkedTranslatorAgent(Agent):
         ]
         min_tokens = self._estimate_output_tokens(chunk)
         resp = self.chatbot.message(
-            messages_list, output_checker=self.prompter.check_format, temperature=self.TEMPERATURE,
+            messages_list,
+            output_checker=self.prompter.check_format,
+            temperature=self.TEMPERATURE,
             min_tokens=min_tokens,
         )[0]
         translations, summary, scene = self._parse_responses(resp)
@@ -352,7 +354,7 @@ class ContextReviewerAgent(Agent):
         # Estimate whether the full text fits in a single pass.
         system_tokens = get_text_token_number(self.prompter.system())
         user_tokens = get_text_token_number(self.prompter.user(text_content, title=title, given_glossary=glossary))
-        mc = getattr(self.chatbot, 'model_config', None)
+        mc = getattr(self.chatbot, "model_config", None)
         context_window = mc.context_window if (mc and mc.context_window) else 131072
         available_output = int(context_window * 0.90) - system_tokens - user_tokens
 
@@ -490,7 +492,7 @@ class ContextReviewerAgent(Agent):
         # Calculate max text tokens per chunk: context_window - system - user_overhead - output_reserve.
         system_tokens = get_text_token_number(self.prompter.system())
         user_overhead = get_text_token_number(self.prompter.user("", title=title, given_glossary=glossary))
-        mc = getattr(self.chatbot, 'model_config', None)
+        mc = getattr(self.chatbot, "model_config", None)
         context_window = mc.context_window if (mc and mc.context_window) else 131072
         max_text_tokens = int(context_window * 0.90) - system_tokens - user_overhead - self.MIN_OUTPUT_TOKENS
 
@@ -553,7 +555,7 @@ class ContextReviewerAgent(Agent):
         groups them into pairs, merges each pair, and recurses until one remains.
         """
         merge_system_tokens = get_text_token_number(self.prompter.merge_system())
-        mc = getattr(self.chatbot, 'model_config', None)
+        mc = getattr(self.chatbot, "model_config", None)
         context_window = mc.context_window if (mc and mc.context_window) else 131072
         max_merge_input = int(context_window * 0.90) - merge_system_tokens - self.MIN_OUTPUT_TOKENS
 
