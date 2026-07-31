@@ -3,6 +3,7 @@
 
 import abc
 from abc import ABC
+from typing import Generic, TypeVar
 
 from langcodes import Language
 
@@ -16,6 +17,11 @@ from openlrc.validators import (
     ProofreaderValidator,
     TranslationEvaluatorValidator,
 )
+
+# Generic over validator type so subclasses can narrow ``validator`` (pyright
+# forbids narrowing mutable attributes directly). Classic TypeVar/Generic syntax
+# is used for Python 3.11 compat and mature Nuitka support (PEP 695 needs 3.12+).
+V = TypeVar("V", bound=BaseValidator)
 
 ORIGINAL_PREFIX = "Original>"
 TRANSLATION_PREFIX = "Translation>"
@@ -110,8 +116,8 @@ Please DO NOT use JSON format in your response.
 """
 
 
-class Prompter(abc.ABC):
-    validator: "BaseValidator | None" = None
+class Prompter(abc.ABC, Generic[V]):
+    validator: V | None = None
 
     def check_format(self, user_input: str, generated_content: str) -> bool:
         if self.validator:
@@ -120,7 +126,7 @@ class Prompter(abc.ABC):
             return True
 
 
-class TranslatePrompter(Prompter, ABC):
+class TranslatePrompter(Prompter[V], ABC):
     @classmethod
     def format_texts(cls, texts):
         raise NotImplementedError()
@@ -134,7 +140,7 @@ class TranslatePrompter(Prompter, ABC):
         return (Language.get(src_lang).display_name("en"), Language.get(target_lang).display_name("en"))
 
 
-class ChunkedTranslatePrompter(TranslatePrompter):
+class ChunkedTranslatePrompter(TranslatePrompter[ChunkedTranslateValidator]):
     def __init__(self, src_lang, target_lang, context: TranslateInfo):
         self.src_lang = src_lang
         self.target_lang = target_lang
@@ -185,7 +191,7 @@ Use the following glossary to ensure consistency in your translations:
         return "\n".join([f"#{i}\n{ORIGINAL_PREFIX}\n{text}\n{TRANSLATION_PREFIX}\n" for i, text in texts])
 
 
-class AtomicTranslatePrompter(TranslatePrompter):
+class AtomicTranslatePrompter(TranslatePrompter[AtomicTranslateValidator]):
     def __init__(self, src_lang, target_lang):
         self.src_lang = src_lang
         self.target_lang = target_lang
@@ -223,7 +229,7 @@ Please ensure each translated line starts with #<id> on its own line, \
 followed by the translation on the next line. Do not add any extra text."""
 
 
-class LeanTranslatePrompter(TranslatePrompter):
+class LeanTranslatePrompter(TranslatePrompter[LeanTranslateValidator]):
     """Prompter for :class:`LeanTranslator`.
 
     Produces a compact system prompt (~150 tokens) and a user prompt that
@@ -243,10 +249,7 @@ class LeanTranslatePrompter(TranslatePrompter):
         self.validator = LeanTranslateValidator(expected_ids)
 
     def system(self) -> str:
-        return LEAN_TRANSLATE_INSTRUCTION.format(
-            src_lang=self.src_lang_display,
-            target_lang=self.target_lang_display,
-        )
+        return LEAN_TRANSLATE_INSTRUCTION.format(src_lang=self.src_lang_display, target_lang=self.target_lang_display)
 
     def user(
         self,
@@ -572,7 +575,7 @@ Now, merge into one guideline with glossary, characters, and summary:
 """
 
 
-class ProofreaderPrompter(Prompter):
+class ProofreaderPrompter(Prompter[ProofreaderValidator]):
     def __init__(self, src_lang, target_lang):
         self.src_lang = src_lang
         self.target_lang = target_lang
@@ -623,7 +626,7 @@ Thus, it is important to adapt to changing circumstances and remain open to new 
         )
 
 
-class ContextReviewerValidatePrompter(Prompter):
+class ContextReviewerValidatePrompter(Prompter[ContextReviewerValidateValidator]):
     def __init__(self):
         self.validator = ContextReviewerValidateValidator()
 
@@ -697,7 +700,7 @@ False"""
         return f"""Input:\n{context}\nOutput:"""
 
 
-class TranslationEvaluatorPrompter(Prompter):
+class TranslationEvaluatorPrompter(Prompter[TranslationEvaluatorValidator]):
     def __init__(self):
         self.validator = TranslationEvaluatorValidator()
         self.stop_sequence = "<--END-OF-JSON-->"
