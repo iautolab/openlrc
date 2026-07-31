@@ -7,7 +7,7 @@ name = "openlrc"
 version = "1.7.0a1"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 authors = [{ name = "Hao Zheng", email = "zhenghaosustc@gmail.com" }]
-requires-python = ">=3.11, <3.13"
+requires-python = ">=3.11, <3.15"
 readme = "README.md"
 license = "MIT"
 keywords = ["openai-gpt3", "whisper", "voice transcribe", "lrc"]
@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
     "openai>=2.20.0",
     "anthropic>=0.90.0",
-    "tiktoken>=0.8.0,<0.9",
+    "tiktoken>=0.12.0,<0.14",
     "langcodes>=3.3.0,<4",
     "language-data~=1.1",
     "tqdm>=4.65.0,<5",
@@ -32,13 +32,12 @@ dependencies = [
     "lingua-language-detector>=1.3.2,<2",
     "filetype>=1.2.0,<2",
     "jaconvV2>=0.4,<0.5",
-    "spacy>=3.8.5,<4",
+    "spacy>=3.8.13,<3.8.14",  # 3.8.14 has no cp314 wheels/sdist on PyPI (broken release, see explosion/spaCy#13949)
     "pysbd>=0.3.4,<0.4",
     "faster-whisper>=1.1.1,<2",
-    "ffmpeg-normalize>=1.27.5,<2",
+    "ffmpeg-normalize>=1.36.0,<2",
     "google-genai>=1.70.0",
-    "json_repair==0.25.2",
-    "onnxruntime>=1.20.0,<2",
+    "json_repair>=0.50.0,<1",
     "pip>=25.1",
 ]
 
@@ -48,10 +47,10 @@ dependencies = [
 # Only needed when using noise_suppress=True in LRCer.run() or Preprocessor.run().
 full = [
     "dpdfnet>=0.6.0",
-    "numba>=0.58.0",  # first version supporting both Python 3.11 and 3.12
+    "numba>=0.58.0",  # librosa allows >=0.51 which breaks 3.11+ resolution
 ]
 litellm = [
-    "litellm>=1.60,<1.85",
+    "litellm>=1.82,<2",
 ]
 
 [project.urls]
@@ -64,7 +63,15 @@ Homepage = "https://github.com/zh-plus/openlrc"
 openlrc = "openlrc.cli:main"
 
 [dependency-groups]
-dev = ["pyright>=1.1", "ruff>=0.11"]
+dev = [
+    "pyright>=1.1",
+    "ruff>=0.11",
+    "pytest>=8",
+    "pytest-sugar>=1.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.uv]
 

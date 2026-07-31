@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.11", "3.12" ]
+        python-version: [ "3.11", "3.12", "3.13", "3.14" ]
         os: [ windows-latest, ubuntu-latest ]
 
     defaults:
@@ -53,7 +53,6 @@ jobs:
         uses: FedericoCarboni/setup-ffmpeg@v2
         id: setup-ffmpeg
 
-      - name: Test with unittest
-        working-directory: ./tests
+      - name: Test with pytest
         run: |
-          uv run --extra full --extra litellm python -m unittest discover -s . -p 'test_*.py'
+          uv run --extra full --extra litellm pytest

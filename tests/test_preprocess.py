@@ -11,6 +11,8 @@ import numpy as np
 
 from openlrc.preprocess import Preprocessor
 
+DATA_DIR = Path(__file__).parent / "data"
+
 # Inject lightweight fakes for the optional noise-suppression stack so these
 # tests run without the openlrc[full] extra installed.
 _dpdfnet = types.ModuleType("dpdfnet")
@@ -43,7 +45,7 @@ sys.modules.setdefault("soundfile", _soundfile)
 
 class TestPreprocessor(unittest.TestCase):
     def tearDown(self) -> None:
-        preprocessed_path = Path("data/preprocessed")
+        preprocessed_path = DATA_DIR / "preprocessed"
         shutil.rmtree(preprocessed_path, ignore_errors=True)
 
     @patch.object(_dpdfnet, "enhance")
@@ -81,7 +83,7 @@ class TestPreprocessor(unittest.TestCase):
     @patch("openlrc.preprocess.FFmpegNormalize")
     def test_loudness_normalization_returns_path_objects(self, mock_norm):
         mock_norm.return_value.run_normalization.return_value = None
-        preprocessor = Preprocessor("data/test_audio.wav")
+        preprocessor = Preprocessor(DATA_DIR / "test_audio.wav")
         ln_paths = preprocessor.loudness_normalization(preprocessor.audio_paths)
         self.assertIsInstance(ln_paths, list)
         self.assertIsInstance(ln_paths[0], Path)

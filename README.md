@@ -321,6 +321,9 @@ uv run ruff format --check openlrc/ tests/
 
 # Type check
 uv run pyright openlrc/
+
+# Tests
+uv run --extra full --extra litellm pytest
 ```
 
 For live translation testing as a developer (and for CI usage), set:

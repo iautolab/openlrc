@@ -9,6 +9,8 @@ from faster_whisper.transcribe import Segment, Word
 
 from openlrc.transcribe import Transcriber, TranscriptionInfo
 
+DATA_DIR = Path(__file__).parent / "data"
+
 return_tuple = (
     [
         Segment(
@@ -44,7 +46,7 @@ return_tuple = (
 
 class TestTranscriber(unittest.TestCase):
     def setUp(self) -> None:
-        self.audio_path = Path("data/test_audio.wav")
+        self.audio_path = DATA_DIR / "test_audio.wav"
 
     @patch("openlrc.transcribe.BatchedInferencePipeline")
     def test_transcribe_success(self, MockBatchedInferencePipeline):

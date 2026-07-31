@@ -12,6 +12,8 @@ from openlrc.openlrc import LRCer, TranscriptionConfig, TranslationConfig
 from openlrc.transcribe import TranscriptionInfo
 from openlrc.utils import extend_filename
 
+DATA_DIR = Path(__file__).parent / "data"
+
 # Shared test config — avoids repeating these in every test method.
 _TEST_TRANSCRIPTION = TranscriptionConfig(whisper_model="tiny", compute_type="default", device="cpu")
 
@@ -64,9 +66,9 @@ def _mock_create_chatbot(*args, **kwargs):
 @patch("openlrc.agents.create_chatbot", side_effect=_mock_create_chatbot)
 class TestLRCer(unittest.TestCase):
     def setUp(self) -> None:
-        self.audio_path = Path("data/test_audio.wav")
-        self.video_path = Path("data/test_video.mp4")
-        self.nospeech_video_path = Path("data/test_nospeech_video.mp4")
+        self.audio_path = DATA_DIR / "test_audio.wav"
+        self.video_path = DATA_DIR / "test_video.mp4"
+        self.nospeech_video_path = DATA_DIR / "test_nospeech_video.mp4"
 
     def tearDown(self) -> None:
         def clear_paths(input_path):
@@ -89,7 +91,7 @@ class TestLRCer(unittest.TestCase):
 
         self.video_path.with_suffix(".wav").unlink(missing_ok=True)
 
-        shutil.rmtree("data/preprocessed", ignore_errors=True)
+        shutil.rmtree(DATA_DIR / "preprocessed", ignore_errors=True)
 
     # ------------------------------------------------------------------
     # Pipeline tests (using new config API)
@@ -115,14 +117,14 @@ class TestLRCer(unittest.TestCase):
     def test_audio_file_not_found(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
         with self.assertRaises(FileNotFoundError):
-            lrcer.run("data/invalid.mp3")
+            lrcer.run(DATA_DIR / "invalid.mp3")
 
     @patch(
         "openlrc.translate.LLMTranslator.translate", MagicMock(return_value=["test translation1", "test translation2"])
     )
     def test_video_file_transcription_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
-        result = lrcer.run("data/test_video.mp4")
+        result = lrcer.run(DATA_DIR / "test_video.mp4")
         self.assertTrue(result)
 
     @patch(
@@ -130,7 +132,7 @@ class TestLRCer(unittest.TestCase):
     )
     def test_nospeech_video_file_transcription_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
-        result = lrcer.run("data/test_nospeech_video.mp4")
+        result = lrcer.run(DATA_DIR / "test_nospeech_video.mp4")
         self.assertTrue(result)
 
     @patch("openlrc.translate.LLMTranslator.translate", MagicMock(side_effect=Exception("test exception")))
@@ -142,7 +144,7 @@ class TestLRCer(unittest.TestCase):
     @patch("openlrc.translate.LLMTranslator.translate", MagicMock(side_effect=Exception("test exception")))
     def test_skip_translation(self, _mock_chatbot):
         lrcer = LRCer(transcription=_TEST_TRANSCRIPTION)
-        result = lrcer.run("data/test_video.mp4", skip_trans=True)
+        result = lrcer.run(DATA_DIR / "test_video.mp4", skip_trans=True)
         self.assertTrue(result)
 
     @patch(
