@@ -48,6 +48,7 @@ dependencies = [
 # Only needed when using noise_suppress=True in LRCer.run() or Preprocessor.run().
 full = [
     "dpdfnet>=0.6.0",
+    "numba>=0.58.0",  # first version supporting both Python 3.11 and 3.12
 ]
 litellm = [
     "litellm>=1.60,<1.85",
