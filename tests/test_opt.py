@@ -4,14 +4,17 @@
 import json
 import os
 import unittest
+from pathlib import Path
 
 from openlrc.opt import SubtitleOptimizer
 from openlrc.subtitle import Subtitle
 
+DATA_DIR = Path(__file__).parent / "data"
+
 
 class TestSubtitleOptimizer(unittest.TestCase):
     def setUp(self) -> None:
-        self.subtitle = Subtitle.from_json("data/test_valid_subtitle.json")
+        self.subtitle = Subtitle.from_json(DATA_DIR / "test_valid_subtitle.json")
 
     def test_merge_same(self):
         subtitle = self.subtitle
@@ -75,12 +78,12 @@ class TestSubtitleOptimizer(unittest.TestCase):
         subtitle = self.subtitle
         optimizer = SubtitleOptimizer(subtitle)
         optimizer.perform_all()
-        optimizer.save(output_name="data/test_subtitle_optimized.json")
+        optimizer.save(output_name=DATA_DIR / "test_subtitle_optimized.json")
 
-        with open("data/test_subtitle_optimized.json", encoding="utf-8") as f:
+        with open(DATA_DIR / "test_subtitle_optimized.json", encoding="utf-8") as f:
             optimized_subtitle = json.load(f)
 
         self.assertEqual(optimized_subtitle["language"], "zh")
         self.assertEqual(len(optimized_subtitle["segments"]), 8)
 
-        os.remove("data/test_subtitle_optimized.json")
+        os.remove(DATA_DIR / "test_subtitle_optimized.json")

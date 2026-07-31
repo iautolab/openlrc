@@ -14,12 +14,14 @@ from openlrc.utils import (
     parse_timestamp,
 )
 
+DATA_DIR = Path(__file__).parent / "data"
+
 
 class TestUtils(unittest.TestCase):
     def setUp(self) -> None:
-        self.audio_file = Path("data/test_audio.wav")
-        self.video_file = Path("data/test_video.mp4")
-        self.unsupported = Path("data/unsupported_file.xyz")
+        self.audio_file = DATA_DIR / "test_audio.wav"
+        self.video_file = DATA_DIR / "test_video.mp4"
+        self.unsupported = DATA_DIR / "unsupported_file.xyz"
 
     def tearDown(self) -> None:
         self.video_file.with_suffix(".wav").unlink(missing_ok=True)
