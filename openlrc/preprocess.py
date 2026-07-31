@@ -7,9 +7,14 @@ from pathlib import Path
 from ffmpeg_normalize import FFmpegNormalize
 from tqdm import tqdm
 
-from openlrc.defaults import LOUDNORM_SUFFIX, NOISE_SUPPRESSED_SUFFIX, PREPROCESSED_DIR, default_preprocess_options
+from openlrc.defaults import (
+    DEFAULT_DPDFNET_MODEL,
+    LOUDNORM_SUFFIX,
+    NOISE_SUPPRESSED_SUFFIX,
+    PREPROCESSED_DIR,
+    default_preprocess_options,
+)
 from openlrc.logger import logger
-from openlrc.media_utils import release_memory
 from openlrc.utils import get_preprocessed_path
 
 
@@ -63,17 +68,15 @@ class Preprocessor:
             return []
 
         try:
-            import torch
-            from df.enhance import enhance, init_df, load_audio, save_audio
+            import dpdfnet
+            import librosa
+            import soundfile
         except ImportError:
-            raise ImportError(
-                "Noise suppression requires torch and deepfilternet. Install them with: pip install 'openlrc[full]'"
-            )
+            raise ImportError("Noise suppression requires dpdfnet. Install it with: pip install 'openlrc[full]'")
 
         if "atten_lim_db" in self.options:
             atten_lim_db = self.options["atten_lim_db"]
-
-        model, df_state, _ = init_df()
+        model = self.options.get("dpdfnet_model", DEFAULT_DPDFNET_MODEL)
         chunk_size = 180  # 3 min
 
         ns_audio_paths = []
@@ -82,30 +85,32 @@ class Preprocessor:
             ns_path = output_path / f"{audio_name}{NOISE_SUPPRESSED_SUFFIX}.wav"
 
             if not ns_path.exists():
-                audio, info = load_audio(str(audio_path), sr=df_state.sr())
+                waveform, sr = librosa.load(str(audio_path), sr=None, mono=False)
+                sr = int(sr)
 
                 # Split audio into 3 min chunks
+                chunk_samples = chunk_size * sr
                 audio_chunks = [
-                    audio[:, i : i + chunk_size * info.sample_rate]
-                    for i in range(0, audio.shape[1], chunk_size * info.sample_rate)
+                    waveform[..., i : i + chunk_samples] for i in range(0, waveform.shape[-1], chunk_samples)
                 ]
 
-                enhanced_chunks = []
-                for ac in tqdm(audio_chunks, desc=f"Noise suppressing for {audio_name}"):
-                    enhanced_chunks.append(enhance(model, df_state, ac, atten_lim_db=atten_lim_db))
+                try:
+                    with soundfile.SoundFile(str(ns_path), mode="w", samplerate=sr, channels=1, subtype="PCM_16") as f:
+                        for ac in tqdm(audio_chunks, desc=f"Noise suppressing for {audio_name}"):
+                            enhanced = dpdfnet.enhance(ac, sr, model=model, attn_limit_db=atten_lim_db)
 
-                enhanced = torch.cat(enhanced_chunks, dim=1)
+                            if enhanced.shape[-1] != ac.shape[-1]:
+                                raise ValueError(
+                                    f"Enhanced audio shape does not match original audio shape: "
+                                    f"{enhanced.shape} != {ac.shape}"
+                                )
 
-                if enhanced.shape != audio.shape:
-                    raise ValueError(
-                        f"Enhanced audio shape does not match original audio shape: {enhanced.shape} != {audio.shape}"
-                    )
-
-                save_audio(str(ns_path), enhanced, sr=df_state.sr())
+                            f.write(enhanced)
+                except Exception:
+                    ns_path.unlink(missing_ok=True)
+                    raise
 
             ns_audio_paths.append(ns_path)
-
-        release_memory(model)
 
         return ns_audio_paths
 

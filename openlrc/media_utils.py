@@ -4,7 +4,7 @@
 """Media-related utility functions that depend on heavy external libraries.
 
 Functions in this module import packages such as ``ffmpeg``, ``filetype``,
-``audioread``, ``torch``, and ``spacy`` inside their bodies.  Keeping them
+``audioread``, and ``spacy`` inside their bodies.  Keeping them
 separate from :mod:`openlrc.utils` ensures that the lightweight translation
 path never triggers those imports — critical for Nuitka ``--nofollow-import-to``
 builds where the heavy packages are intentionally excluded.
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from spacy.language import Language as SpacyLanguage
@@ -82,16 +82,6 @@ def get_audio_duration(path: str | Path) -> float:
 
     with audioread.audio_open(str(path)) as audio:
         return audio.duration
-
-
-def release_memory(model: Any) -> None:
-    try:
-        import torch
-    except ImportError:
-        return
-
-    if isinstance(model, torch.nn.Module):
-        torch.cuda.empty_cache()
 
 
 def get_spacy_lib(lang):
