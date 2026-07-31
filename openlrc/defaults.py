@@ -40,7 +40,9 @@ default_vad_options = {
     "speech_pad_ms": 400,
 }
 
-default_preprocess_options = {"atten_lim_db": 15}
+DEFAULT_DPDFNET_MODEL = "dpdfnet2_48khz_hr"
+
+default_preprocess_options = {"atten_lim_db": 15, "dpdfnet_model": DEFAULT_DPDFNET_MODEL}
 
 # File name suffixes used throughout the pipeline.
 # The processing chain produces files like:

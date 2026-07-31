@@ -1,30 +1,44 @@
 #  Copyright (C) 2024. Hao Zheng
 #  All rights reserved.
-import builtins
 import shutil
 import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-import torch
+import numpy as np
 
 from openlrc.preprocess import Preprocessor
 
-# Python 3.10's unittest.mock.patch has a bug where @patch("df.enhance.enhance")
-# caches the function object `enhance` as the resolved `df.enhance`, causing
-# subsequent @patch("df.enhance.save_audio") to look up `save_audio` on the
-# function instead of the module (AttributeError). Fixed in Python 3.11+.
-# Workaround: inject a fake df.enhance module via sys.modules and use
-# patch.object() to avoid string-based path resolution entirely.
-_df_enhance = types.ModuleType("df.enhance")
-_df_enhance.enhance = lambda *a, **kw: None  # type: ignore[attr-defined]
-_df_enhance.init_df = lambda *a, **kw: None  # type: ignore[attr-defined]
-_df_enhance.load_audio = lambda *a, **kw: None  # type: ignore[attr-defined]
-_df_enhance.save_audio = lambda *a, **kw: None  # type: ignore[attr-defined]
-sys.modules.setdefault("df", types.ModuleType("df"))
-sys.modules.setdefault("df.enhance", _df_enhance)
+# Inject lightweight fakes for the optional noise-suppression stack so these
+# tests run without the openlrc[full] extra installed.
+_dpdfnet = types.ModuleType("dpdfnet")
+_dpdfnet.enhance = lambda *a, **kw: None  # type: ignore[attr-defined]
+sys.modules.setdefault("dpdfnet", _dpdfnet)
+
+_librosa = types.ModuleType("librosa")
+_librosa.load = lambda *a, **kw: None  # type: ignore[attr-defined]
+sys.modules.setdefault("librosa", _librosa)
+
+
+class _FakeSoundFile:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def write(self, data):
+        pass
+
+
+_soundfile = types.ModuleType("soundfile")
+_soundfile.SoundFile = _FakeSoundFile
+sys.modules.setdefault("soundfile", _soundfile)
 
 
 class TestPreprocessor(unittest.TestCase):
@@ -32,30 +46,37 @@ class TestPreprocessor(unittest.TestCase):
         preprocessed_path = Path("data/preprocessed")
         shutil.rmtree(preprocessed_path, ignore_errors=True)
 
-    @patch.object(_df_enhance, "enhance")
-    @patch.object(_df_enhance, "init_df")
-    @patch.object(_df_enhance, "load_audio")
-    @patch.object(_df_enhance, "save_audio")
-    @patch("openlrc.preprocess.release_memory")
-    def test_noise_suppression_returns_path_objects(
-        self, mock_release_memory, mock_save_audio, mock_load_audio, mock_init_df, mock_enhance
-    ):
+    @patch.object(_dpdfnet, "enhance")
+    @patch.object(_librosa, "load")
+    def test_noise_suppression_returns_path_objects(self, mock_load, mock_enhance):
         chunk_size = 180
+        mock_sr = 16000
         mock_audio_size = chunk_size * 5
 
-        mock_enhance.return_value = torch.zeros((2, chunk_size * 16000))
-        mock_init_df.return_value = (Mock(), Mock(), Mock())
+        mock_enhance.return_value = np.zeros(chunk_size * mock_sr)
+        mock_load.return_value = (np.zeros(mock_audio_size * mock_sr), mock_sr)
 
-        mock_info = Mock()
-        mock_info.sample_rate = 16000
-        mock_load_audio.return_value = (torch.zeros((2, mock_audio_size * 16000)), mock_info)
-
-        mock_save_audio.return_value = None
-        mock_release_memory.return_value = None
         preprocessor = Preprocessor("audio.wav")
         ns_paths = preprocessor.noise_suppression(preprocessor.audio_paths)
         self.assertIsInstance(ns_paths, list)
         self.assertIsInstance(ns_paths[0], Path)
+        self.assertEqual(mock_enhance.call_count, 5)
+
+    @patch.object(_dpdfnet, "enhance")
+    @patch.object(_librosa, "load")
+    @patch("openlrc.preprocess.Path.unlink")
+    def test_noise_suppression_shape_mismatch_removes_partial_file(self, mock_unlink, mock_load, mock_enhance):
+        chunk_size = 180
+        mock_sr = 16000
+        mock_audio_size = chunk_size * 5
+
+        mock_enhance.return_value = np.zeros(chunk_size * mock_sr + 1)
+        mock_load.return_value = (np.zeros(mock_audio_size * mock_sr), mock_sr)
+
+        preprocessor = Preprocessor("audio.wav")
+        with self.assertRaises(ValueError):
+            preprocessor.noise_suppression(preprocessor.audio_paths)
+        mock_unlink.assert_called_once()
 
     @patch("openlrc.preprocess.FFmpegNormalize")
     def test_loudness_normalization_returns_path_objects(self, mock_norm):
@@ -82,14 +103,7 @@ class TestPreprocessor(unittest.TestCase):
             Preprocessor(123)
 
     def test_noise_suppression_missing_optional_deps_has_quoted_install_hint(self):
-        original_import = builtins.__import__
-
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "torch":
-                raise ImportError("No module named 'torch'")
-            return original_import(name, globals, locals, fromlist, level)
-
         preprocessor = Preprocessor("audio.wav")
-        with patch("builtins.__import__", side_effect=fake_import):
+        with patch.dict(sys.modules, {"dpdfnet": None}):
             with self.assertRaisesRegex(ImportError, r"pip install 'openlrc\[full\]'"):
                 preprocessor.noise_suppression(preprocessor.audio_paths)

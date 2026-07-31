@@ -4,9 +4,7 @@
 import unittest
 from pathlib import Path
 
-import torch
-
-from openlrc.media_utils import extract_audio, get_file_type, release_memory
+from openlrc.media_utils import extract_audio, get_file_type
 from openlrc.utils import (
     extend_filename,
     format_timestamp,
@@ -97,13 +95,6 @@ class TestUtils(unittest.TestCase):
     def test_extend_filename(self):
         self.assertEqual(extend_filename(Path("file.txt"), "_new"), Path("file_new.txt"))
         self.assertEqual(extend_filename(Path("file.txt"), ""), Path("file.txt"))
-
-    def test_release_memory(self):
-        model = torch.nn.Module()
-        if torch.cuda.is_available():
-            model.cuda()
-        release_memory(model)
-        self.assertEqual(torch.cuda.memory_allocated(), 0)
 
     def test_normalize(self):
         alphabet_fw = (

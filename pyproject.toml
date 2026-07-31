@@ -7,7 +7,7 @@ name = "openlrc"
 version = "1.7.0a1"
 description = "Transcribe (whisper) and translate (gpt) voice into LRC file."
 authors = [{ name = "Hao Zheng", email = "zhenghaosustc@gmail.com" }]
-requires-python = ">=3.10, <3.13"
+requires-python = ">=3.11, <3.13"
 readme = "README.md"
 license = "MIT"
 keywords = ["openai-gpt3", "whisper", "voice transcribe", "lrc"]
@@ -38,19 +38,17 @@ dependencies = [
     "ffmpeg-normalize>=1.27.5,<2",
     "google-genai>=1.70.0",
     "json_repair==0.25.2",
-    "onnxruntime>=1.20.0,<1.24; python_version < '3.11'",
-    "onnxruntime>=1.20.0,<2; python_version >= '3.11'",
+    "onnxruntime>=1.20.0,<2",
     "pip>=25.1",
 ]
 
 [project.optional-dependencies]
-# Noise suppression via DeepFilterNet (requires torch).
+# Noise suppression via DPDFNet (pure Python + ONNX Runtime, no torch/torchaudio).
 # Install with: pip install openlrc[full]
 # Only needed when using noise_suppress=True in LRCer.run() or Preprocessor.run().
 full = [
-    "torch>=2.6.0",
-    "torchaudio>=2.0.0",
-    "deepfilternet>=0.5.6,<0.6",
+    "dpdfnet>=0.6.0",
+    "numba>=0.58.0",  # first version supporting both Python 3.11 and 3.12
 ]
 litellm = [
     "litellm>=1.60,<1.85",
@@ -75,21 +73,8 @@ name = "PyPI"
 url = "https://pypi.org/simple/"
 default = true
 
-[[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-]
-torchaudio = [
-    { index = "pytorch-cu124", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-]
-
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120
 
 [tool.ruff.format]
@@ -106,7 +91,7 @@ known-first-party = ["openlrc"]
 split-on-trailing-comma = false
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 exclude = ["openlrc/gui_streamlit"]
 
 [tool.hatch.build.targets.sdist]

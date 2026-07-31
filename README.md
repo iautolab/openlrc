@@ -59,7 +59,7 @@ into `.lrc` subtitles with LLMs such as
     ```
 
 5. **(Optional)** If you need noise suppression (`noise_suppress=True`), install the full extras
-   which includes torch and DeepFilterNet:
+   which includes DPDFNet:
 
     ```shell
     pip install 'openlrc[full]'
@@ -76,7 +76,7 @@ into `.lrc` subtitles with LLMs such as
 OpenLRC keeps several package-root APIs lightweight to import.
 
 The following imports are guaranteed not to eagerly load heavyweight runtime dependencies such as
-`torch`, `spacy`, `faster-whisper`, `tiktoken`, or `lingua`:
+`dpdfnet`, `spacy`, `faster-whisper`, `tiktoken`, or `lingua`:
 
 ```python
 import openlrc
@@ -91,15 +91,16 @@ without immediately starting transcription or language-processing work.
 Heavy dependencies are loaded only when the corresponding features are first used. For example:
 
 - `faster-whisper` is loaded when transcription is first needed.
-- `torch` and `df.enhance` are loaded when noise suppression is used.
+- `dpdfnet` is loaded when noise suppression is used.
 - `spacy` is loaded when sentence segmentation or related NLP helpers are used.
 - `tiktoken` is loaded when token counting is used.
 - `lingua` is loaded when language detection helpers are used.
 
 > [!NOTE]
-> The base `pip install openlrc` does **not** include torch or DeepFilterNet.
-> These are only installed with `pip install 'openlrc[full]'` and are only needed
-> for noise suppression (`noise_suppress=True`).
+> The base `pip install openlrc` does **not** include dpdfnet.
+> It is only installed with `pip install 'openlrc[full]'` and is only needed
+> for noise suppression (`noise_suppress=True`). On first use, DPDFNet downloads
+> its model (default `dpdfnet2_48khz_hr`, ~10MB) to `~/.cache/dpdfnet/models`.
 
 ## Usage 🐍
 
