@@ -69,7 +69,8 @@ jobs:
           enable-cache: true
 
       - name: Install dev dependencies
-        run: uv sync --group dev
+        # --all-extras: pyright analyzes optional imports (litellm, dpdfnet, etc.)
+        run: uv sync --group dev --all-extras
 
       - name: Type check with pyright
         run: uv run pyright openlrc/
