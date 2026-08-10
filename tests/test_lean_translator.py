@@ -13,7 +13,7 @@ from openlrc.media_utils import get_similarity
 from openlrc.prompter import LeanContextReviewPrompter, LeanTranslatePrompter
 from openlrc.translate import LeanTranslator
 from openlrc.validators import LeanTranslateValidator
-from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_MODELS
+from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_MODEL
 
 
 def _make_mock_chatbot(name: str = "gpt-4.1-nano") -> MagicMock:
@@ -642,13 +642,13 @@ class TestLeanTranslatorLive(unittest.TestCase):
 
     These tests make real LLM API calls and require:
     - OPENLRC_TEST_LIVE_API=1
-    - OPENLRC_TEST_LLM_API_KEY set to a valid API key
+    - DEEPSEEK_API_KEY set to a valid API key
     """
 
     @classmethod
     def setUpClass(cls):
         if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
+            raise unittest.SkipTest("DEEPSEEK_API_KEY is required for LLM integration tests.")
 
     def tearDown(self):
         compare_path = Path("translate_intermediate.json")
@@ -656,7 +656,7 @@ class TestLeanTranslatorLive(unittest.TestCase):
 
     def test_single_chunk_no_cr(self):
         """Basic single-chunk translation without CR."""
-        chatbot = create_chatbot(TEST_MODELS["gemini"])
+        chatbot = create_chatbot(TEST_MODEL)
         try:
             translator = LeanTranslator(chatbot=chatbot, enable_cr=False)
             translations = translator.translate("Hello, how are you?", "en", "es")
@@ -670,7 +670,7 @@ class TestLeanTranslatorLive(unittest.TestCase):
     def test_multiple_chunk_no_cr(self):
         """Multiple chunks without CR, verifying all lines are translated."""
         texts = ["Hello, how are you?", "I am fine, thank you.", "See you tomorrow.", "Good night."]
-        chatbot = create_chatbot(TEST_MODELS["gemini"])
+        chatbot = create_chatbot(TEST_MODEL)
         try:
             translator = LeanTranslator(chatbot=chatbot, enable_cr=False, chunk_size=2)
             translations = translator.translate(texts, "en", "es")
@@ -683,7 +683,7 @@ class TestLeanTranslatorLive(unittest.TestCase):
     def test_with_cr(self):
         """Full pipeline: CR generates guideline, then translation uses it."""
         texts = ["The suspect fled to the uptown area.", "Detective John began the investigation."]
-        chatbot = create_chatbot(TEST_MODELS["gemini"])
+        chatbot = create_chatbot(TEST_MODEL)
         try:
             translator = LeanTranslator(chatbot=chatbot, enable_cr=True)
             translations = translator.translate(texts, "en", "zh")
@@ -694,10 +694,10 @@ class TestLeanTranslatorLive(unittest.TestCase):
         self.assertTrue(all(t.strip() for t in translations))
 
     def test_cr_chatbot_separation(self):
-        """Mixed-model: GPT does CR, Gemini does translation."""
+        """Separate DeepSeek clients handle CR and translation."""
         texts = ["The suspect fled to the uptown area.", "Detective John began the investigation."]
-        cr_bot = create_chatbot(TEST_MODELS["gpt"])
-        mt_bot = create_chatbot(TEST_MODELS["gemini"])
+        cr_bot = create_chatbot(TEST_MODEL)
+        mt_bot = create_chatbot(TEST_MODEL)
         try:
             translator = LeanTranslator(chatbot=mt_bot, cr_chatbot=cr_bot, enable_cr=True)
             translations = translator.translate(texts, "en", "zh")
@@ -711,7 +711,7 @@ class TestLeanTranslatorLive(unittest.TestCase):
 
     def test_empty_texts(self):
         """Empty input returns empty list without API calls."""
-        chatbot = create_chatbot(TEST_MODELS["gemini"])
+        chatbot = create_chatbot(TEST_MODEL)
         try:
             translator = LeanTranslator(chatbot=chatbot, enable_cr=False)
             translations = translator.translate([], "en", "es")

@@ -16,7 +16,7 @@ from openlrc.chatbot import ClaudeBot, GPTBot, LiteLLMBot
 from openlrc.context import TranslateInfo
 from openlrc.models import ModelConfig
 from openlrc.prompter import ChunkedTranslatePrompter
-from tests.conftest import LIVE_API, STRESS_TEST, TEST_LLM_API_KEY, TEST_MODELS
+from tests.conftest import LIVE_API, STRESS_TEST, TEST_LLM_API_KEY, TEST_MODEL
 
 
 class DummyMessage(BaseModel):
@@ -158,7 +158,7 @@ class TestContextReviewerAgent(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
+            raise unittest.SkipTest("DEEPSEEK_API_KEY is required for LLM integration tests.")
 
     def test_generates_valid_context(self):
         texts = [
@@ -170,7 +170,7 @@ class TestContextReviewerAgent(unittest.TestCase):
         title = "The Detectors"
         glossary = {"suspect": "嫌疑人", "uptown": "市中心"}
 
-        bot = create_chatbot(TEST_MODELS["gemini"])
+        bot = create_chatbot(TEST_MODEL)
         self.addCleanup(bot.close)
         agent = ContextReviewerAgent("en", "zh", chatbot=bot)
         context = agent.build_context(texts, title, glossary)
@@ -369,7 +369,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
+            raise unittest.SkipTest("DEEPSEEK_API_KEY is required for LLM integration tests.")
         if not LONG_SUBTITLE_PATH.exists():
             raise unittest.SkipTest(f"Test fixture not found: {LONG_SUBTITLE_PATH}")
 
@@ -382,7 +382,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     def test_baseline_single_pass(self) -> None:
         """Large-window model generates a valid guideline in one pass."""
-        bot = create_chatbot(TEST_MODELS["gemini"])
+        bot = create_chatbot(TEST_MODEL)
         self.addCleanup(bot.close)
         agent = ContextReviewerAgent("en", "zh", chatbot=bot)
 
@@ -406,7 +406,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
     @unittest.skipUnless(STRESS_TEST, "Requires OPENLRC_TEST_STRESS=1 (tokenizer mismatch may cause failures on CI)")
     def test_chunked_16k_window(self) -> None:
         """Simulated 16K window triggers ~3 chunks; closest to the real scenario in PR #103."""
-        model = copy(TEST_MODELS["gemini"])
+        model = copy(TEST_MODEL)
         model.context_window = 16384
         model.max_tokens = 4096
 
@@ -436,7 +436,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     def test_chunked_8k_window(self) -> None:
         """Simulated 8K window triggers ~6 chunks; merged guideline should be non-empty."""
-        model = copy(TEST_MODELS["gemini"])
+        model = copy(TEST_MODEL)
         model.context_window = 8192
         model.max_tokens = 2048
 
@@ -489,7 +489,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     def test_latency_and_reliability(self) -> None:
         """Run chunked generation multiple times and log latency/success statistics."""
-        model = copy(TEST_MODELS["gemini"])
+        model = copy(TEST_MODEL)
         model.context_window = 8192
         model.max_tokens = 2048
 
@@ -533,7 +533,7 @@ class TestChunkedGuidelineLive(unittest.TestCase):
 
     def test_stress_4k_window(self) -> None:
         """4K window forces ~15 chunks and hierarchical merging; must not crash."""
-        model = copy(TEST_MODELS["gemini"])
+        model = copy(TEST_MODEL)
         model.context_window = 4096
         model.max_tokens = 1024
 

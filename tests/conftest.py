@@ -3,45 +3,30 @@
 
 """Shared test configuration.
 
-All values can be overridden via environment variables so that developers
-can point tests at a local vLLM instance or use different models without
-editing source code.
+Live integration tests use a single OpenAI-compatible DeepSeek model. The
+endpoint and model name remain configurable for compatible local test servers,
+but credentials always come from ``DEEPSEEK_API_KEY``.
 
 Environment variables:
-    OPENLRC_TEST_LLM_BASE_URL   LLM API base URL (default: OpenRouter)
-    OPENLRC_TEST_LLM_API_KEY    LLM API key
-    OPENLRC_TEST_MODEL_GPT      Model name for GPT tests
-    OPENLRC_TEST_MODEL_CLAUDE   Model name for Claude tests
-    OPENLRC_TEST_MODEL_GEMINI   Model name for Gemini tests
-    OPENLRC_TEST_LIVE_API       Set to "1" to enable live API tests
-    OPENLRC_TEST_STRESS         Set to "1" to enable stress tests
+    DEEPSEEK_API_KEY             DeepSeek API key
+    OPENLRC_TEST_LLM_BASE_URL    OpenAI-compatible API base URL
+    OPENLRC_TEST_MODEL           Model name (default: deepseek-v4-flash)
+    OPENLRC_TEST_LIVE_API        Set to "1" to enable live API tests
+    OPENLRC_TEST_STRESS          Set to "1" to enable stress tests
 """
 
 import os
 
 from openlrc.models import ModelConfig, ModelProvider
 
-TEST_LLM_BASE_URL = os.environ.get("OPENLRC_TEST_LLM_BASE_URL", "https://openrouter.ai/api/v1")
-TEST_LLM_API_KEY = os.environ.get("OPENLRC_TEST_LLM_API_KEY")
-
-_MODEL_NAMES = {
-    "gpt": os.environ.get("OPENLRC_TEST_MODEL_GPT", "openai/gpt-5-nano"),
-    "claude": os.environ.get("OPENLRC_TEST_MODEL_CLAUDE", "anthropic/claude-haiku-4.5"),
-    "gemini": os.environ.get("OPENLRC_TEST_MODEL_GEMINI", "google/gemini-2.5-flash-lite"),
-}
-
-_EXTRA_BODY = {"chat_template_kwargs": {"enable_thinking": False}}
-
-TEST_MODELS: dict[str, ModelConfig] = {
-    key: ModelConfig(
-        provider=ModelProvider.OPENAI,
-        name=name,
-        base_url=TEST_LLM_BASE_URL,
-        api_key=TEST_LLM_API_KEY,
-        extra_body=_EXTRA_BODY,
-    )
-    for key, name in _MODEL_NAMES.items()
-}
+TEST_LLM_BASE_URL = os.environ.get("OPENLRC_TEST_LLM_BASE_URL", "https://api.deepseek.com")
+TEST_LLM_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
+TEST_MODEL = ModelConfig(
+    provider=ModelProvider.OPENAI,
+    name=os.environ.get("OPENLRC_TEST_MODEL", "deepseek-v4-flash"),
+    base_url=TEST_LLM_BASE_URL,
+    api_key=TEST_LLM_API_KEY,
+)
 
 LIVE_API = os.environ.get("OPENLRC_TEST_LIVE_API", "").lower() in ("1", "true", "yes")
 STRESS_TEST = os.environ.get("OPENLRC_TEST_STRESS", "").lower() in ("1", "true", "yes")

@@ -8,7 +8,7 @@ import openai
 from pydantic import BaseModel
 
 from openlrc.chatbot import ClaudeBot, GPTBot, route_chatbot
-from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_LLM_BASE_URL, TEST_MODELS
+from tests.conftest import LIVE_API, TEST_LLM_API_KEY, TEST_LLM_BASE_URL, TEST_MODEL
 
 
 class Usage(BaseModel):
@@ -33,7 +33,7 @@ class OpenAIResponse(BaseModel):
 class TestChatBot(unittest.TestCase):
     def setUp(self):
         self.gpt_bot = GPTBot(
-            model_name=TEST_MODELS["gpt"].name,
+            model_name=TEST_MODEL.name,
             temperature=1,
             top_p=1,
             retry=8,
@@ -52,9 +52,9 @@ class TestChatBot(unittest.TestCase):
             api_key="test-key",
         )
 
-    def _make_openrouter_bot(self, model_name: str):
+    def _make_test_bot(self):
         return GPTBot(
-            model_name=model_name,
+            model_name=TEST_MODEL.name,
             temperature=1,
             top_p=1,
             retry=8,
@@ -102,43 +102,22 @@ class TestChatBot(unittest.TestCase):
         self.assertIsNotNone(bot.api_fees)
 
     @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1")
-    def test_gpt_message_async(self):
+    def test_message_async(self):
         if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
-        bot = self._make_openrouter_bot(TEST_MODELS["gpt"].name)
+            raise unittest.SkipTest("DEEPSEEK_API_KEY is required for LLM integration tests.")
+        bot = self._make_test_bot()
         messages_list = [[{"role": "user", "content": "Echo hello:"}], [{"role": "user", "content": "Echo hello:"}]]
         results = bot.message(messages_list)
 
         self.assertTrue(all(["hello" in bot.get_content(r).lower() for r in results]))
 
     @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1")
-    def test_claude_message_async(self):
+    def test_message_seq(self):
         if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
-        bot = self._make_openrouter_bot(TEST_MODELS["claude"].name)
-        messages_list = [[{"role": "user", "content": "Echo hello:"}], [{"role": "user", "content": "Echo hello:"}]]
-        results = bot.message(messages_list)
-
-        self.assertTrue(all(["hello" in bot.get_content(r).lower() for r in results]))
-
-    @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1")
-    def test_gpt_message_seq(self):
-        if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
-        bot = self._make_openrouter_bot(TEST_MODELS["gpt"].name)
+            raise unittest.SkipTest("DEEPSEEK_API_KEY is required for LLM integration tests.")
+        bot = self._make_test_bot()
         messages_list = [[{"role": "user", "content": "Echo hello:"}]]
         results = bot.message(messages_list)
-
-        self.assertIn("hello", bot.get_content(results[0]).lower())
-
-    @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1")
-    def test_claude_message_seq(self):
-        if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
-        bot = self._make_openrouter_bot(TEST_MODELS["claude"].name)
-        messages_list = [[{"role": "user", "content": "Echo hello:"}]]
-        results = bot.message(messages_list)
-        assert "hello" in bot.get_content(results[0]).lower()
 
         self.assertIn("hello", bot.get_content(results[0]).lower())
 
@@ -335,7 +314,7 @@ class TestThirdPartyBot(unittest.TestCase):
 
 
 @unittest.skipUnless(LIVE_API, "Requires OPENLRC_TEST_LIVE_API=1 and valid API keys")
-class TestGeminiBot(unittest.TestCase):
+class TestDeepSeekBot(unittest.TestCase):
     # def setUp(self):
     #     import os
     #     os.environ['HTTP_PROXY'] = 'http://127.0.0.1:7897'
@@ -348,11 +327,9 @@ class TestGeminiBot(unittest.TestCase):
 
     def test_multi_turn(self):
         if not TEST_LLM_API_KEY:
-            raise unittest.SkipTest("OPENLRC_TEST_LLM_API_KEY is required for LLM integration tests.")
+            raise unittest.SkipTest("DEEPSEEK_API_KEY is required for LLM integration tests.")
         bot = GPTBot(
-            model_name=TEST_MODELS["gemini"].name,
-            base_url_config={"openai": TEST_LLM_BASE_URL},
-            api_key=TEST_LLM_API_KEY,
+            model_name=TEST_MODEL.name, base_url_config={"openai": TEST_LLM_BASE_URL}, api_key=TEST_LLM_API_KEY
         )
         result = bot.message(
             [

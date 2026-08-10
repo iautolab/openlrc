@@ -329,12 +329,13 @@ uv run --extra full --extra litellm pytest
 For live translation testing as a developer (and for CI usage), set:
 
 ```shell
-export OPENLRC_TEST_LLM_API_KEY="your-api-key"
+export DEEPSEEK_API_KEY="your-api-key"
 export OPENLRC_TEST_LIVE_API=1
 ```
 
-See `tests/conftest.py` for all configurable environment variables
-(e.g. `OPENLRC_TEST_LLM_BASE_URL` to point at a local vLLM instance).
+Live tests use the OpenAI-compatible `deepseek-v4-flash` model by default. See
+`tests/conftest.py` for configurable environment variables (e.g.
+`OPENLRC_TEST_LLM_BASE_URL` to point at another compatible test endpoint).
 
 ### Build and publish a release
 
