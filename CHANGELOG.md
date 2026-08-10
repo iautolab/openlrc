@@ -1,3 +1,19 @@
+## 1.7.0a2
+
+Improve noise-suppression portability, extend Python compatibility, and strengthen the test and CI workflow.
+
+### New Features:
+
+- Replace the PyTorch-based DeepFilterNet noise-suppression backend with the ONNX-based DPDFNet implementation in the optional `full` extra.
+- Raise the minimum Python version to 3.11, add Python 3.13 and 3.14 support, and refresh dependency constraints for the expanded range.
+
+### Other Changes:
+
+- Migrate the test runner to pytest and make the suite independent of the current working directory.
+- Resolve Pyright errors, make the prompt base class generic, and enforce Pyright and Ruff checks in CI.
+- Pin spaCy away from its broken 3.8.14 release and tighten the Numba constraint for clean installations.
+- Run live LLM integration tests exclusively against the OpenAI-compatible `deepseek-v4-flash` model using `DEEPSEEK_API_KEY` locally and in GitHub Actions.
+
 ## 1.7.0a1
 
 Add a token-efficient lean translation pipeline, broaden model-provider routing, and refresh the configuration surface for mixed-model workflows.

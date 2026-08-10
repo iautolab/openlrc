@@ -356,7 +356,7 @@ uv publish
 # uv publish --token <pypi-token>
 ```
 
-If you prefer GitHub Actions publishing, configure PyPI trusted publishing for this repository and push a version tag such as `v1.7.0a1`.
+If you prefer GitHub Actions publishing, configure PyPI trusted publishing for this repository and push a version tag such as `v1.7.0a2`.
 
 ## Todo
 
